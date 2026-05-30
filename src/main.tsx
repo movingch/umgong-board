@@ -151,7 +151,7 @@ function BoardScreen({ boardId }: { boardId: string }) {
         setItems((prev) => prev.filter((it) => it.id !== payload.old.id));
       })
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => { supabase?.removeChannel(channel); };
   }, [boardId]);
 
   async function removeItem(id: string) {
