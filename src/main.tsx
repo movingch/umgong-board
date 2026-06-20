@@ -135,47 +135,9 @@ async function uploadBlob(boardId: string, blob: Blob, ext: string) {
   return data.publicUrl;
 }
 
-// ── 보드 내보내기 (JPG / PDF) ─────────────────────────────
-async function exportBoard(format: 'jpg' | 'pdf', boardTitle: string, show: (msg: string, type: 'success' | 'error') => void) {
-  const boardEl = document.querySelector('.cork-board') as HTMLElement | null;
-  if (!boardEl) return;
-
-  show('캡처 중...', 'success');
-  try {
-    const html2canvas = (await import('html2canvas')).default;
-    const canvas = await html2canvas(boardEl, {
-      useCORS: true,
-      allowTaint: true,
-      backgroundColor: '#c89f62',
-      scale: 1.5,
-      logging: false,
-    });
-
-    const fileName = boardTitle.replace(/[^가-힣a-zA-Z0-9]/g, '_') || 'board';
-
-    if (format === 'jpg') {
-      const link = document.createElement('a');
-      link.download = `${fileName}.jpg`;
-      link.href = canvas.toDataURL('image/jpeg', 0.92);
-      link.click();
-      show('JPG로 저장했습니다.', 'success');
-    } else {
-      const { jsPDF } = await import('jspdf');
-      const w = canvas.width;
-      const h = canvas.height;
-      const pdf = new jsPDF({
-        orientation: w > h ? 'landscape' : 'portrait',
-        unit: 'px',
-        format: [w, h],
-        compress: true,
-      });
-      pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, w, h);
-      pdf.save(`${fileName}.pdf`);
-      show('PDF로 저장했습니다.', 'success');
-    }
-  } catch (e) {
-    show(e instanceof Error ? e.message : '내보내기에 실패했습니다.', 'error');
-  }
+// ── 보드 인쇄 / PDF 저장 ─────────────────────────────────
+function printBoard() {
+  window.print();
 }
 
 // ── Toast ────────────────────────────────────────────────
@@ -304,7 +266,6 @@ function BoardScreen({ boardId }: { boardId: string }) {
   const [board, setBoard] = useState<Board | null>(null);
   const [items, setItems] = useState<BoardItem[]>([]);
   const [selected, setSelected] = useState<BoardItem | null>(null);
-  const [exporting, setExporting] = useState(false);
   const { toast, show } = useToast();
   const joinUrl = `${getBaseUrl()}/join/${boardId}`;
 
@@ -362,12 +323,6 @@ function BoardScreen({ boardId }: { boardId: string }) {
     if (error) setItems(prev);
   }
 
-  async function handleExport(format: 'jpg' | 'pdf') {
-    setExporting(true);
-    await exportBoard(format, board?.title || '생각보드', show);
-    setExporting(false);
-  }
-
   function typeLabel(type: BoardItem['type']) {
     if (type === 'drawing') return '낙서';
     if (type === 'text') return '텍스트';
@@ -393,11 +348,8 @@ function BoardScreen({ boardId }: { boardId: string }) {
         <button className="soft-btn" onClick={() => document.documentElement.requestFullscreen?.()}>전체화면</button>
         <button className="soft-btn" onClick={() => navigator.clipboard.writeText(joinUrl).then(() => show('링크를 복사했습니다.', 'success'))}>참여 링크 복사</button>
         <div className="toolbar-divider" />
-        <button className="soft-btn export-btn" disabled={exporting || items.length === 0} onClick={() => handleExport('jpg')}>
-          {exporting ? '저장 중...' : '📷 JPG 저장'}
-        </button>
-        <button className="soft-btn export-btn" disabled={exporting || items.length === 0} onClick={() => handleExport('pdf')}>
-          {exporting ? '저장 중...' : '📄 PDF 저장'}
+        <button className="soft-btn export-btn" disabled={items.length === 0} onClick={printBoard}>
+          🖨️ 인쇄 / PDF 저장
         </button>
       </section>
 

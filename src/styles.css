@@ -86,12 +86,12 @@ button:disabled { opacity: .55; cursor: wait; }
   display: flex;
   justify-content: space-between;
   gap: 18px;
-  padding: 24px 30px;
+  padding: 14px 30px;
   background: rgba(255, 248, 236, .93);
   border-bottom: 1px solid var(--line);
 }
-.board-header h1 { font-size: clamp(30px, 4vw, 54px); margin: 8px 0 4px; }
-.board-header p { margin: 0; }
+.board-header h1 { font-size: clamp(26px, 3.5vw, 46px); margin: 4px 0 2px; }
+.board-header p { margin: 0; font-size: 14px; }
 .qr-box {
   min-width: 150px;
   display: grid;
@@ -204,8 +204,56 @@ button:disabled { opacity: .55; cursor: wait; }
 
 /* 툴바 구분선 + 내보내기 버튼 */
 .toolbar-divider { width: 1px; background: rgba(255,255,255,.4); margin: 0 4px; align-self: stretch; }
-.export-btn { background: rgba(255,255,255,.55); }
+.export-btn { background: rgba(255,255,255,.55); font-weight: 900; }
 .export-btn:disabled { opacity: .4; }
+
+/* ── 인쇄 / PDF 저장 스타일 ─────────────────────────────── */
+@media print {
+  /* 헤더·툴바·모달 숨김 */
+  .board-header,
+  .board-toolbar,
+  .image-modal,
+  .draw-backdrop { display: none !important; }
+
+  /* 보드 배경·레이아웃 */
+  body { background: #c89f62 !important; margin: 0; }
+  .board-page { min-height: auto; }
+
+  .cork-board {
+    min-height: auto !important;
+    padding: 24px !important;
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 20px !important;
+    background:
+      radial-gradient(circle at 18px 18px, rgba(55,32,12,.12) 2px, transparent 3px),
+      linear-gradient(135deg, var(--cork), var(--cork-dark)) !important;
+    background-size: 32px 32px, auto !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* 카드 */
+  .photo-note {
+    box-shadow: 0 4px 10px rgba(0,0,0,.2) !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    opacity: 1 !important;
+  }
+
+  /* 삭제 버튼 숨김 */
+  .delete-btn { display: none !important; }
+
+  /* 이미지 선명하게 */
+  .photo-note img {
+    opacity: 1 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* 빈 보드 메시지 숨김 */
+  .empty-board { display: none !important; }
+}
 
 /* 내 보드 히스토리 */
 .history-section { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 20px; }
