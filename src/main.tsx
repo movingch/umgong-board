@@ -278,21 +278,23 @@ function Home({ user }: { user: User | null }) {
 
 // ── 로그인 화면 ───────────────────────────────────────────
 function LoginScreen() {
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
-  const [sent, setSent] = useState(false);
+  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const { toast, show } = useToast();
 
-  async function sendMagicLink() {
-    if (!email.trim() || !supabase) return;
+  async function handleSubmit() {
+    if (!email.trim() || !password || !supabase) return;
     setBusy(true);
     try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email: email.trim(),
-        options: { emailRedirectTo: window.location.origin },
-      });
-      if (error) throw error;
-      setSent(true);
+      if (mode === 'login') {
+        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.auth.signUp({ email: email.trim(), password });
+        if (error) throw error;
+      }
     } catch (e) {
       show(e instanceof Error ? e.message : '오류가 발생했습니다.', 'error');
     } finally {
@@ -305,42 +307,42 @@ function LoginScreen() {
       <section className="hero-card">
         <div className="brand">생각보드</div>
         <h1>스마트폰으로 그리고, PC 화면에 함께 전시합니다.</h1>
-        <p>내 보드를 저장하고 어느 기기에서든 불러오려면 이메일로 로그인하세요.</p>
+        <p>내 보드를 저장하고 어느 기기에서든 불러오려면 로그인하세요.</p>
 
-        {sent ? (
-          // 이메일 전송 완료 화면
-          <div className="magic-sent">
-            <div className="magic-icon">📧</div>
-            <p className="magic-email">{email}</p>
-            <p className="magic-desc">
-              로 로그인 링크를 보냈습니다.<br />
-              이메일 받은편지함을 확인하고<br />
-              링크를 클릭하면 자동으로 로그인됩니다.
-            </p>
-            <button className="soft-btn" style={{ marginTop: 16 }} onClick={() => setSent(false)}>
-              다시 보내기
-            </button>
-          </div>
-        ) : (
-          // 이메일 입력 화면
-          <>
-            <label className="field-label" htmlFor="login-email">이메일 주소</label>
-            <input
-              id="login-email"
-              type="email"
-              className="title-input"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="your@email.com"
-              onKeyDown={(e) => e.key === 'Enter' && sendMagicLink()}
-              autoFocus
-            />
-            <button className="primary-btn" disabled={busy || !email.trim()} onClick={sendMagicLink}>
-              {busy ? '전송 중...' : '✉️ 로그인 링크 받기'}
-            </button>
-            <p className="hint">비밀번호 없이 이메일 링크 한 번으로 로그인됩니다.</p>
-          </>
-        )}
+        <div className="login-tabs">
+          <button className={mode === 'login' ? 'login-tab active' : 'login-tab'} onClick={() => setMode('login')}>로그인</button>
+          <button className={mode === 'signup' ? 'login-tab active' : 'login-tab'} onClick={() => setMode('signup')}>회원가입</button>
+        </div>
+
+        <label className="field-label" htmlFor="login-email">이메일 주소</label>
+        <input
+          id="login-email"
+          type="email"
+          className="title-input"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="your@email.com"
+          onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+          autoFocus
+        />
+        <label className="field-label" htmlFor="login-password">비밀번호</label>
+        <input
+          id="login-password"
+          type="password"
+          className="title-input"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder={mode === 'signup' ? '6자 이상 입력' : '비밀번호 입력'}
+          onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+        />
+        <button className="primary-btn" disabled={busy || !email.trim() || !password} onClick={handleSubmit}>
+          {busy ? '처리 중...' : mode === 'login' ? '로그인' : '회원가입'}
+        </button>
+        <p className="hint">{mode === 'login' ? '아직 계정이 없으신가요?' : '이미 계정이 있으신가요?'}{' '}
+          <button className="link-btn" onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}>
+            {mode === 'login' ? '회원가입' : '로그인'}
+          </button>
+        </p>
       </section>
       <Toast toast={toast} />
     </main>
