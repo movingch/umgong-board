@@ -8,6 +8,27 @@ import './styles.css';
 const BUCKET = 'board-images';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// ── 내 보드 히스토리 ──────────────────────────────────────
+type SavedBoard = { id: string; title: string; savedAt: string };
+
+function getHistory(): SavedBoard[] {
+  return JSON.parse(localStorage.getItem('board-history') || '[]');
+}
+
+function saveToHistory(id: string, title: string) {
+  const history = getHistory().filter((b) => b.id !== id);
+  const updated = [{ id, title, savedAt: new Date().toISOString() }, ...history].slice(0, 20);
+  localStorage.setItem('board-history', JSON.stringify(updated));
+}
+
+function removeFromHistory(id: string) {
+  localStorage.setItem(
+    'board-history',
+    JSON.stringify(getHistory().filter((b) => b.id !== id)),
+  );
+}
+
+// ── 유틸 ─────────────────────────────────────────────────
 function uid() {
   return crypto.randomUUID();
 }
@@ -40,7 +61,6 @@ async function resizeImage(file: File, maxWidth = 1600, quality = 0.82): Promise
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('이미지 처리에 실패했습니다.');
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  // revokeObjectURL은 toBlob 완료 후 해제 (타이밍 버그 수정)
   return new Promise((resolve) => {
     canvas.toBlob((blob) => {
       URL.revokeObjectURL(url);
@@ -67,30 +87,22 @@ function textToImageBlob(text: string, uploaderName: string): Promise<Blob> {
   canvas.width = 800;
   canvas.height = 600;
   const ctx = canvas.getContext('2d')!;
-
   ctx.fillStyle = '#fffdf6';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // 이름 영역
   ctx.fillStyle = '#c89f62';
   ctx.font = 'bold 22px ui-sans-serif, system-ui, sans-serif';
   ctx.fillText(uploaderName || '이름 없는 참여자', 40, 52);
-
-  // 구분선
   ctx.strokeStyle = '#e1c7a5';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.moveTo(40, 70);
   ctx.lineTo(760, 70);
   ctx.stroke();
-
-  // 텍스트 본문 (줄바꿈 처리)
   ctx.fillStyle = '#241914';
   ctx.font = '30px ui-sans-serif, system-ui, sans-serif';
   const maxLineWidth = 720;
   const lineHeight = 46;
   let y = 116;
-
   for (const paragraph of text.split('\n')) {
     let line = '';
     for (const char of paragraph) {
@@ -104,16 +116,10 @@ function textToImageBlob(text: string, uploaderName: string): Promise<Blob> {
         line = test;
       }
     }
-    if (line && y <= 540) {
-      ctx.fillText(line, 40, y);
-      y += lineHeight;
-    }
+    if (line && y <= 540) { ctx.fillText(line, 40, y); y += lineHeight; }
     if (y > 540) break;
   }
-
-  return new Promise((resolve) => {
-    canvas.toBlob((blob) => resolve(blob!), 'image/png');
-  });
+  return new Promise((resolve) => { canvas.toBlob((blob) => resolve(blob!), 'image/png'); });
 }
 
 async function uploadBlob(boardId: string, blob: Blob, ext: string) {
@@ -127,6 +133,49 @@ async function uploadBlob(boardId: string, blob: Blob, ext: string) {
   if (error) throw error;
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
   return data.publicUrl;
+}
+
+// ── 보드 내보내기 (JPG / PDF) ─────────────────────────────
+async function exportBoard(format: 'jpg' | 'pdf', boardTitle: string, show: (msg: string, type: 'success' | 'error') => void) {
+  const boardEl = document.querySelector('.cork-board') as HTMLElement | null;
+  if (!boardEl) return;
+
+  show('캡처 중...', 'success');
+  try {
+    const html2canvas = (await import('html2canvas')).default;
+    const canvas = await html2canvas(boardEl, {
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: '#c89f62',
+      scale: 1.5,
+      logging: false,
+    });
+
+    const fileName = boardTitle.replace(/[^가-힣a-zA-Z0-9]/g, '_') || 'board';
+
+    if (format === 'jpg') {
+      const link = document.createElement('a');
+      link.download = `${fileName}.jpg`;
+      link.href = canvas.toDataURL('image/jpeg', 0.92);
+      link.click();
+      show('JPG로 저장했습니다.', 'success');
+    } else {
+      const { jsPDF } = await import('jspdf');
+      const w = canvas.width;
+      const h = canvas.height;
+      const pdf = new jsPDF({
+        orientation: w > h ? 'landscape' : 'portrait',
+        unit: 'px',
+        format: [w, h],
+        compress: true,
+      });
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, w, h);
+      pdf.save(`${fileName}.pdf`);
+      show('PDF로 저장했습니다.', 'success');
+    }
+  } catch (e) {
+    show(e instanceof Error ? e.message : '내보내기에 실패했습니다.', 'error');
+  }
 }
 
 // ── Toast ────────────────────────────────────────────────
@@ -146,7 +195,7 @@ function Toast({ toast }: { toast: { msg: string; type: 'success' | 'error' } | 
   return <div className={`toast toast-${toast.type}`}>{toast.msg}</div>;
 }
 
-// ── App router ───────────────────────────────────────────
+// ── App ───────────────────────────────────────────────────
 function App() {
   const route = getPathParts();
   if (route.mode === 'board' && route.boardId) {
@@ -164,6 +213,7 @@ function App() {
 function Home() {
   const [title, setTitle] = useState('오늘의 생각보드');
   const [busy, setBusy] = useState(false);
+  const [history, setHistory] = useState<SavedBoard[]>(getHistory);
   const { toast, show } = useToast();
 
   async function createBoard() {
@@ -172,17 +222,24 @@ function Home() {
       if (!supabase) {
         const id = uid();
         localStorage.setItem(`demo-board-${id}`, JSON.stringify({ id, title }));
+        saveToHistory(id, title);
         window.location.href = `/board/${id}`;
         return;
       }
       const { data, error } = await supabase.from('boards').insert({ title }).select().single();
       if (error) throw error;
+      saveToHistory(data.id, title);
       window.location.href = `/board/${data.id}`;
     } catch (e) {
       show(e instanceof Error ? e.message : '보드 생성에 실패했습니다.', 'error');
     } finally {
       setBusy(false);
     }
+  }
+
+  function deleteHistory(id: string) {
+    removeFromHistory(id);
+    setHistory(getHistory());
   }
 
   return (
@@ -196,8 +253,7 @@ function Home() {
         </p>
         {!isSupabaseReady && (
           <div className="warning">
-            현재 Supabase 환경변수가 없어 데모 모드로 실행됩니다. 배포 전 README의 설정을
-            적용하세요.
+            현재 Supabase 환경변수가 없어 데모 모드로 실행됩니다.
           </div>
         )}
         <label className="field-label" htmlFor="board-title">보드 제목</label>
@@ -206,10 +262,37 @@ function Home() {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           className="title-input"
+          onKeyDown={(e) => e.key === 'Enter' && !busy && createBoard()}
         />
         <button onClick={createBoard} disabled={busy} className="primary-btn">
           {busy ? '만드는 중...' : '새 보드 만들기'}
         </button>
+
+        {/* 내 보드 히스토리 */}
+        {history.length > 0 && (
+          <div className="history-section">
+            <div className="history-title">최근 보드</div>
+            <ul className="history-list">
+              {history.map((b) => (
+                <li key={b.id} className="history-item">
+                  <a href={`/board/${b.id}`} className="history-link">
+                    <span className="history-name">{b.title}</span>
+                    <span className="history-date">
+                      {new Date(b.savedAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })}
+                    </span>
+                  </a>
+                  <button
+                    className="history-del"
+                    aria-label="목록에서 삭제"
+                    onClick={() => deleteHistory(b.id)}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
       <Toast toast={toast} />
     </main>
@@ -221,90 +304,68 @@ function BoardScreen({ boardId }: { boardId: string }) {
   const [board, setBoard] = useState<Board | null>(null);
   const [items, setItems] = useState<BoardItem[]>([]);
   const [selected, setSelected] = useState<BoardItem | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const { toast, show } = useToast();
   const joinUrl = `${getBaseUrl()}/join/${boardId}`;
 
-  // 초기 로드
   useEffect(() => {
     async function load() {
       if (!supabase) {
         const storedBoard = localStorage.getItem(`demo-board-${boardId}`);
-        setBoard(storedBoard ? JSON.parse(storedBoard) : { id: boardId, title: '데모 생각보드' });
+        const b = storedBoard ? JSON.parse(storedBoard) : { id: boardId, title: '데모 생각보드' };
+        setBoard(b);
+        saveToHistory(boardId, b.title);
         setItems(JSON.parse(localStorage.getItem(`demo-items-${boardId}`) || '[]'));
         return;
       }
       const [{ data: b }, { data: loadedItems, error }] = await Promise.all([
         supabase.from('boards').select('*').eq('id', boardId).single(),
-        supabase
-          .from('board_items')
-          .select('*')
-          .eq('board_id', boardId)
-          .order('created_at', { ascending: true }),
+        supabase.from('board_items').select('*').eq('board_id', boardId).order('created_at', { ascending: true }),
       ]);
-      if (b) setBoard(b);
+      if (b) {
+        setBoard(b);
+        saveToHistory(boardId, b.title);
+      }
       if (!error && loadedItems) setItems(loadedItems as BoardItem[]);
     }
     load();
   }, [boardId]);
 
-  // 실시간 구독 (자동 새로고침)
   useEffect(() => {
     if (!supabase) {
-      // 데모 모드: localStorage 폴링
       const timer = window.setInterval(() => {
         setItems(JSON.parse(localStorage.getItem(`demo-items-${boardId}`) || '[]'));
       }, 1000);
       return () => window.clearInterval(timer);
     }
-
     const channel = supabase
       .channel(`board-${boardId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'board_items',
-          filter: `board_id=eq.${boardId}`,
-        },
-        (payload) => {
-          setItems((prev) =>
-            prev.some((it) => it.id === payload.new.id)
-              ? prev
-              : [...prev, payload.new as BoardItem],
-          );
-        },
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'DELETE',
-          schema: 'public',
-          table: 'board_items',
-          filter: `board_id=eq.${boardId}`,
-        },
-        (payload) => {
-          setItems((prev) => prev.filter((it) => it.id !== payload.old.id));
-        },
-      )
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'board_items', filter: `board_id=eq.${boardId}` }, (payload) => {
+        setItems((prev) => prev.some((it) => it.id === payload.new.id) ? prev : [...prev, payload.new as BoardItem]);
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'board_items', filter: `board_id=eq.${boardId}` }, (payload) => {
+        setItems((prev) => prev.filter((it) => it.id !== payload.old.id));
+      })
       .subscribe();
-
-    return () => {
-      supabase?.removeChannel(channel);
-    };
+    return () => { supabase?.removeChannel(channel); };
   }, [boardId]);
 
-  // 낙관적 삭제 + 실패 시 롤백
   async function removeItem(id: string) {
     if (!confirm('이 항목을 삭제할까요?')) return;
     const prev = items;
     setItems((cur) => cur.filter((it) => it.id !== id));
     if (!supabase) {
-      const next = prev.filter((it) => it.id !== id);
-      localStorage.setItem(`demo-items-${boardId}`, JSON.stringify(next));
+      localStorage.setItem(`demo-items-${boardId}`, JSON.stringify(prev.filter((it) => it.id !== id)));
       return;
     }
     const { error } = await supabase.from('board_items').delete().eq('id', id);
-    if (error) setItems(prev); // 실패 시 롤백
+    if (error) setItems(prev);
+  }
+
+  async function handleExport(format: 'jpg' | 'pdf') {
+    setExporting(true);
+    await exportBoard(format, board?.title || '생각보드', show);
+    setExporting(false);
   }
 
   function typeLabel(type: BoardItem['type']) {
@@ -328,22 +389,21 @@ function BoardScreen({ boardId }: { boardId: string }) {
       </header>
 
       <section className="board-toolbar">
-        <a className="soft-btn" href={joinUrl} target="_blank" rel="noopener noreferrer">
-          참여자 화면 열기
-        </a>
-        <button className="soft-btn" onClick={() => document.documentElement.requestFullscreen?.()}>
-          전체화면
+        <a className="soft-btn" href={joinUrl} target="_blank" rel="noopener noreferrer">참여자 화면 열기</a>
+        <button className="soft-btn" onClick={() => document.documentElement.requestFullscreen?.()}>전체화면</button>
+        <button className="soft-btn" onClick={() => navigator.clipboard.writeText(joinUrl).then(() => show('링크를 복사했습니다.', 'success'))}>참여 링크 복사</button>
+        <div className="toolbar-divider" />
+        <button className="soft-btn export-btn" disabled={exporting || items.length === 0} onClick={() => handleExport('jpg')}>
+          {exporting ? '저장 중...' : '📷 JPG 저장'}
         </button>
-        <button className="soft-btn" onClick={() => navigator.clipboard.writeText(joinUrl)}>
-          참여 링크 복사
+        <button className="soft-btn export-btn" disabled={exporting || items.length === 0} onClick={() => handleExport('pdf')}>
+          {exporting ? '저장 중...' : '📄 PDF 저장'}
         </button>
       </section>
 
       <section className="cork-board">
         {items.length === 0 ? (
-          <div className="empty-board">
-            아직 붙은 그림이 없습니다. QR로 접속해서 첫 번째 생각을 붙여보세요.
-          </div>
+          <div className="empty-board">아직 붙은 그림이 없습니다. QR로 접속해서 첫 번째 생각을 붙여보세요.</div>
         ) : (
           items.map((item) => (
             <article
@@ -353,7 +413,7 @@ function BoardScreen({ boardId }: { boardId: string }) {
               onClick={() => setSelected(item)}
             >
               <div className="tape" />
-              <img src={item.image_url} alt={item.caption || '보드 이미지'} loading="lazy" />
+              <img src={item.image_url} alt={item.caption || '보드 이미지'} loading="lazy" crossOrigin="anonymous" />
               <div className="note-footer">
                 <strong>{item.uploader_name || '참여자'}</strong>
                 <span>{typeLabel(item.type)}</span>
@@ -361,19 +421,15 @@ function BoardScreen({ boardId }: { boardId: string }) {
               <button
                 className="delete-btn"
                 aria-label="항목 삭제"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  removeItem(item.id);
-                }}
-              >
-                ×
-              </button>
+                onClick={(e) => { e.stopPropagation(); removeItem(item.id); }}
+              >×</button>
             </article>
           ))
         )}
       </section>
 
       {selected && <ImageModal item={selected} onClose={() => setSelected(null)} />}
+      <Toast toast={toast} />
     </main>
   );
 }
@@ -431,8 +487,7 @@ function JoinScreen({ boardId }: { boardId: string }) {
   }
 
   async function handleTextSave(text: string) {
-    const uploaderName = name.trim() || '이름 없는 참여자';
-    const blob = await textToImageBlob(text, uploaderName);
+    const blob = await textToImageBlob(text, name.trim() || '이름 없는 참여자');
     await saveItem('text', blob, 'png');
   }
 
@@ -445,47 +500,20 @@ function JoinScreen({ boardId }: { boardId: string }) {
           <div className="warning">데모 모드입니다. 같은 브라우저 안에서만 확인됩니다.</div>
         )}
         <label className="field-label" htmlFor="join-name">이름</label>
-        <input
-          id="join-name"
-          className="title-input"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="이름 또는 별명"
-        />
+        <input id="join-name" className="title-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="이름 또는 별명" />
         <label className="field-label" htmlFor="join-caption">짧은 설명</label>
-        <input
-          id="join-caption"
-          className="title-input"
-          value={caption}
-          onChange={(e) => setCaption(e.target.value)}
-          placeholder="선택 사항"
-        />
+        <input id="join-caption" className="title-input" value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="선택 사항" />
         <div className="join-actions">
-          <button className="primary-btn" disabled={busy} onClick={() => fileRef.current?.click()}>
-            사진 올리기
-          </button>
-          <button className="secondary-btn" disabled={busy} onClick={() => setDrawOpen(true)}>
-            낙서 올리기
-          </button>
-          <button className="secondary-btn" disabled={busy} onClick={() => setTextOpen(true)}>
-            텍스트 올리기
-          </button>
+          <button className="primary-btn" disabled={busy} onClick={() => fileRef.current?.click()}>사진 올리기</button>
+          <button className="secondary-btn" disabled={busy} onClick={() => setDrawOpen(true)}>낙서 올리기</button>
+          <button className="secondary-btn" disabled={busy} onClick={() => setTextOpen(true)}>텍스트 올리기</button>
         </div>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          hidden
-          onChange={(e) => handleFiles(e.target.files)}
-        />
+        <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => handleFiles(e.target.files)} />
         <p className="hint">스마트폰에서는 손가락으로 바로 그릴 수 있습니다.</p>
       </section>
       <Toast toast={toast} />
       {drawOpen && (
-        <DrawingModal
-          onClose={() => setDrawOpen(false)}
-          onSave={(dataUrl) => saveItem('drawing', dataUrlToBlob(dataUrl), 'png')}
-        />
+        <DrawingModal onClose={() => setDrawOpen(false)} onSave={(dataUrl) => saveItem('drawing', dataUrlToBlob(dataUrl), 'png')} />
       )}
       {textOpen && (
         <TextModal onClose={() => setTextOpen(false)} onSave={handleTextSave} busy={busy} />
@@ -495,21 +523,11 @@ function JoinScreen({ boardId }: { boardId: string }) {
 }
 
 // ── TextModal ─────────────────────────────────────────────
-function TextModal({
-  onClose,
-  onSave,
-  busy,
-}: {
-  onClose: () => void;
-  onSave: (text: string) => Promise<void>;
-  busy: boolean;
-}) {
+function TextModal({ onClose, onSave, busy }: { onClose: () => void; onSave: (text: string) => Promise<void>; busy: boolean }) {
   const [text, setText] = useState('');
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
@@ -530,18 +548,11 @@ function TextModal({
           onChange={(e) => setText(e.target.value)}
           placeholder="생각을 자유롭게 적어보세요..."
           rows={8}
-          // eslint-disable-next-line jsx-a11y/no-autofocus
           autoFocus
         />
         <div className="draw-actions">
-          <button className="secondary-btn" onClick={onClose}>
-            취소
-          </button>
-          <button
-            className="primary-btn"
-            disabled={busy || !text.trim()}
-            onClick={handleSave}
-          >
+          <button className="secondary-btn" onClick={onClose}>취소</button>
+          <button className="primary-btn" disabled={busy || !text.trim()} onClick={handleSave}>
             {busy ? '올리는 중...' : '보드에 붙이기'}
           </button>
         </div>
@@ -551,13 +562,7 @@ function TextModal({
 }
 
 // ── DrawingModal ──────────────────────────────────────────
-function DrawingModal({
-  onClose,
-  onSave,
-}: {
-  onClose: () => void;
-  onSave: (dataUrl: string) => void;
-}) {
+function DrawingModal({ onClose, onSave }: { onClose: () => void; onSave: (dataUrl: string) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [color, setColor] = useState('#17120d');
   const [size, setSize] = useState(7);
@@ -583,9 +588,7 @@ function DrawingModal({
   }, []);
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
@@ -642,52 +645,15 @@ function DrawingModal({
       <section className="draw-panel">
         <h2>낙서장</h2>
         <div className="draw-tools">
-          <input
-            type="color"
-            value={color}
-            onChange={(e) => {
-              setColor(e.target.value);
-              setEraser(false);
-            }}
-          />
-          <label>
-            굵기{' '}
-            <input
-              type="range"
-              min="2"
-              max="28"
-              value={size}
-              onChange={(e) => setSize(Number(e.target.value))}
-            />
-          </label>
-          <button onClick={() => setEraser(!eraser)} className={eraser ? 'active-tool' : ''}>
-            {eraser ? '지우개 사용 중' : '지우개'}
-          </button>
+          <input type="color" value={color} onChange={(e) => { setColor(e.target.value); setEraser(false); }} />
+          <label>굵기 <input type="range" min="2" max="28" value={size} onChange={(e) => setSize(Number(e.target.value))} /></label>
+          <button onClick={() => setEraser(!eraser)} className={eraser ? 'active-tool' : ''}>{eraser ? '지우개 사용 중' : '지우개'}</button>
           <button onClick={clear}>전체 지우기</button>
         </div>
-        <canvas
-          ref={canvasRef}
-          className="draw-canvas"
-          onPointerDown={down}
-          onPointerMove={move}
-          onPointerUp={up}
-          onPointerLeave={up}
-        />
+        <canvas ref={canvasRef} className="draw-canvas" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={up} />
         <div className="draw-actions">
-          <button className="secondary-btn" onClick={onClose}>
-            취소
-          </button>
-          <button
-            className="primary-btn"
-            onClick={() => {
-              const canvas = canvasRef.current;
-              if (!canvas) return;
-              onSave(canvas.toDataURL('image/png'));
-              onClose();
-            }}
-          >
-            보드에 붙이기
-          </button>
+          <button className="secondary-btn" onClick={onClose}>취소</button>
+          <button className="primary-btn" onClick={() => { const c = canvasRef.current; if (c) { onSave(c.toDataURL('image/png')); onClose(); } }}>보드에 붙이기</button>
         </div>
       </section>
     </div>
@@ -697,9 +663,7 @@ function DrawingModal({
 // ── ImageModal ────────────────────────────────────────────
 function ImageModal({ item, onClose }: { item: BoardItem; onClose: () => void }) {
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
@@ -708,10 +672,7 @@ function ImageModal({ item, onClose }: { item: BoardItem; onClose: () => void })
     <div className="image-modal" onClick={onClose}>
       <div className="image-stage">
         <img src={item.image_url} alt={item.caption || '확대 이미지'} />
-        <p>
-          <strong>{item.uploader_name || '참여자'}</strong>
-          {item.caption ? ` · ${item.caption}` : ''}
-        </p>
+        <p><strong>{item.uploader_name || '참여자'}</strong>{item.caption ? ` · ${item.caption}` : ''}</p>
         <span>다시 클릭하면 보드로 돌아갑니다.</span>
       </div>
     </div>

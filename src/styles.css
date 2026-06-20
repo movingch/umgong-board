@@ -202,6 +202,23 @@ button:disabled { opacity: .55; cursor: wait; }
 .join-actions .primary-btn { grid-column: 1 / -1; margin-top: 0; }
 .join-actions .secondary-btn { margin-top: 0; }
 
+/* 툴바 구분선 + 내보내기 버튼 */
+.toolbar-divider { width: 1px; background: rgba(255,255,255,.4); margin: 0 4px; align-self: stretch; }
+.export-btn { background: rgba(255,255,255,.55); }
+.export-btn:disabled { opacity: .4; }
+
+/* 내 보드 히스토리 */
+.history-section { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 20px; }
+.history-title { font-weight: 900; font-size: 15px; color: var(--muted); margin-bottom: 10px; }
+.history-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.history-item { display: flex; align-items: center; gap: 8px; background: white; border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px; }
+.history-link { flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px; text-decoration: none; color: var(--ink); }
+.history-link:hover .history-name { color: var(--cork-dark); }
+.history-name { font-weight: 700; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-date { font-size: 13px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+.history-del { border: 0; background: transparent; color: #b09070; font-size: 20px; line-height: 1; padding: 0 2px; cursor: pointer; }
+.history-del:hover { color: #c0392b; }
+
 .hint { text-align: center; font-weight: 700; }
 .draw-backdrop {
   position: fixed;
