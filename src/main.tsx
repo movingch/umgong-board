@@ -178,17 +178,18 @@ function Home({ user, guest, onGuest }: { user: User | null; guest: boolean; onG
   async function createBoard() {
     setBusy(true);
     try {
-      if (!supabase || !user) {
-        // 데모 모드 또는 게스트 모드
+      if (!supabase) {
+        // 환경변수 없는 순수 데모 모드
         const id = uid();
         localStorage.setItem(`demo-board-${id}`, JSON.stringify({ id, title }));
         saveToLocalHistory(id, title);
         window.location.href = `/board/${id}`;
         return;
       }
+      // 로그인 사용자: owner_id 포함 / 게스트: owner_id 없이 생성
       const { data, error } = await supabase
         .from('boards')
-        .insert({ title, owner_id: user!.id })
+        .insert(user ? { title, owner_id: user.id } : { title })
         .select()
         .single();
       if (error) throw error;
