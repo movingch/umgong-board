@@ -178,8 +178,8 @@ function Home({ user, guest, onGuest }: { user: User | null; guest: boolean; onG
   async function createBoard() {
     setBusy(true);
     try {
-      if (!supabase) {
-        // 데모 모드
+      if (!supabase || !user) {
+        // 데모 모드 또는 게스트 모드
         const id = uid();
         localStorage.setItem(`demo-board-${id}`, JSON.stringify({ id, title }));
         saveToLocalHistory(id, title);
