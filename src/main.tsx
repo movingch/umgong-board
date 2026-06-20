@@ -194,8 +194,8 @@ function Home({ user, guest, onGuest }: { user: User | null; guest: boolean; onG
         .single();
       if (error) throw error;
       window.location.href = `/board/${data.id}`;
-    } catch (e) {
-      show(e instanceof Error ? e.message : '보드 생성에 실패했습니다.', 'error');
+    } catch (e: any) {
+      show(e?.message || e?.error_description || JSON.stringify(e) || '보드 생성에 실패했습니다.', 'error');
     } finally {
       setBusy(false);
     }
