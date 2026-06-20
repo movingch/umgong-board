@@ -124,16 +124,15 @@ function Toast({ toast }: { toast: { msg: string; type: 'success' | 'error' } | 
 // ── App (인증 상태 관리) ──────────────────────────────────
 function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [authReady, setAuthReady] = useState(!supabase); // 데모 모드면 바로 준비
+  const [authReady, setAuthReady] = useState(!supabase);
+  const [guest, setGuest] = useState(false);
 
   useEffect(() => {
     if (!supabase) return;
-    // 현재 세션 확인
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       setAuthReady(true);
     });
-    // 로그인/로그아웃 이벤트 감지
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
     });
@@ -154,11 +153,11 @@ function App() {
     if (!UUID_RE.test(route.boardId)) return <div className="error-page">잘못된 보드 주소입니다.</div>;
     return <JoinScreen boardId={route.boardId} />;
   }
-  return <Home user={user} />;
+  return <Home user={user} guest={guest} onGuest={() => setGuest(true)} />;
 }
 
 // ── Home ─────────────────────────────────────────────────
-function Home({ user }: { user: User | null }) {
+function Home({ user, guest, onGuest }: { user: User | null; guest: boolean; onGuest: () => void }) {
   const [title, setTitle] = useState('오늘의 생각보드');
   const [busy, setBusy] = useState(false);
   const [myBoards, setMyBoards] = useState<Board[]>([]);
@@ -205,9 +204,9 @@ function Home({ user }: { user: User | null }) {
     await supabase?.auth.signOut();
   }
 
-  // 로그인 안 된 상태
-  if (supabase && !user) {
-    return <LoginScreen />;
+  // 로그인 안 된 상태 (게스트 모드도 아닌 경우)
+  if (supabase && !user && !guest) {
+    return <LoginScreen onGuest={onGuest} />;
   }
 
   // 로그인된 상태 (또는 데모 모드)
@@ -277,7 +276,7 @@ function Home({ user }: { user: User | null }) {
 }
 
 // ── 로그인 화면 ───────────────────────────────────────────
-function LoginScreen() {
+function LoginScreen({ onGuest }: { onGuest: () => void }) {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -343,6 +342,10 @@ function LoginScreen() {
             {mode === 'login' ? '회원가입' : '로그인'}
           </button>
         </p>
+        <div className="guest-divider"><span>또는</span></div>
+        <button className="guest-btn" onClick={onGuest}>
+          즉시 사용 <small>단, 저장되지 않습니다</small>
+        </button>
       </section>
       <Toast toast={toast} />
     </main>

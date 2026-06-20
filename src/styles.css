@@ -61,6 +61,11 @@ p { color: var(--muted); line-height: 1.55; }
 .login-tab { flex: 1; padding: 12px; border: 0; background: white; font-weight: 900; color: var(--muted); }
 .login-tab.active { background: var(--accent); color: white; }
 .link-btn { background: none; border: 0; padding: 0; font: inherit; font-weight: 900; color: var(--accent); text-decoration: underline; cursor: pointer; }
+.guest-divider { display: flex; align-items: center; gap: 12px; margin: 20px 0 0; color: var(--muted); font-size: 13px; }
+.guest-divider::before, .guest-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.guest-btn { width: 100%; margin-top: 12px; padding: 13px 18px; border: 1.5px dashed var(--line); border-radius: 16px; background: transparent; color: var(--muted); font-weight: 700; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 10px; }
+.guest-btn:hover { background: rgba(255,255,255,.5); color: var(--ink); }
+.guest-btn small { font-size: 12px; font-weight: 400; opacity: .8; }
 .title-input {
   width: 100%;
   border: 1px solid var(--line);
