@@ -7,7 +7,7 @@ export type Board = {
 export type BoardItem = {
   id: string;
   board_id: string;
-  type: 'photo' | 'drawing';
+  type: 'photo' | 'drawing' | 'text';
   image_url: string;
   uploader_name: string | null;
   caption: string | null;

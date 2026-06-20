@@ -196,8 +196,12 @@ button:disabled { opacity: .55; cursor: wait; }
 }
 .image-stage p { color: #fff4dc; font-size: 22px; font-weight: 800; margin: 14px 0 4px; }
 .image-stage span { color: #d7c6ad; }
+
+/* 참여자 버튼 3개 레이아웃 */
 .join-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
-.join-actions .primary-btn { margin-top: 0; }
+.join-actions .primary-btn { grid-column: 1 / -1; margin-top: 0; }
+.join-actions .secondary-btn { margin-top: 0; }
+
 .hint { text-align: center; font-weight: 700; }
 .draw-backdrop {
   position: fixed;
@@ -238,7 +242,56 @@ button:disabled { opacity: .55; cursor: wait; }
 }
 .draw-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
 .draw-actions .primary-btn { width: auto; margin-top: 0; }
+
+/* 텍스트 입력 모달 */
+.text-input-area {
+  width: 100%;
+  border: 2px solid var(--line);
+  background: var(--cream);
+  border-radius: 18px;
+  padding: 18px;
+  outline: none;
+  font-size: 18px;
+  line-height: 1.6;
+  resize: vertical;
+  min-height: 200px;
+  color: var(--ink);
+  font-family: inherit;
+}
+.text-input-area:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(47,36,29,.1); }
+.text-input-area::placeholder { color: #b0967c; }
+
+/* Toast 알림 */
+.toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  padding: 14px 24px;
+  border-radius: 999px;
+  font-weight: 900;
+  font-size: 15px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.22);
+  animation: toastIn .2s ease both;
+  white-space: nowrap;
+}
+.toast-success { background: var(--ink); color: white; }
+.toast-error { background: #c0392b; color: white; }
+
+/* 오류 페이지 */
+.error-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+  font-weight: 900;
+  color: var(--muted);
+}
+
 @keyframes popIn { from { opacity: 0; transform: scale(.88) rotate(0deg); } to { opacity: 1; } }
+@keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(12px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
 @media (max-width: 760px) {
   .board-header { flex-direction: column; padding: 20px; }
   .qr-box { width: 100%; }
@@ -248,4 +301,5 @@ button:disabled { opacity: .55; cursor: wait; }
   .hero-card, .join-card { padding: 24px; border-radius: 24px; }
   .join-actions { grid-template-columns: 1fr; }
   .draw-canvas { height: 52vh; }
+  .toast { font-size: 14px; padding: 12px 20px; max-width: 90vw; white-space: normal; text-align: center; }
 }
