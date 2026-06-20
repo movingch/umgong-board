@@ -201,6 +201,18 @@ function Home({ user, guest, onGuest }: { user: User | null; guest: boolean; onG
     }
   }
 
+  async function deleteBoard(id: string) {
+    if (!confirm('이 보드를 삭제할까요? 보드 안의 모든 이미지도 함께 삭제됩니다.')) return;
+    if (user && supabase) {
+      const { error } = await supabase.from('boards').delete().eq('id', id);
+      if (error) { show('삭제에 실패했습니다.', 'error'); return; }
+      setMyBoards((prev) => prev.filter((b) => b.id !== id));
+    } else {
+      removeFromLocalHistory(id);
+      setLocalHistory(getLocalHistory());
+    }
+  }
+
   async function logout() {
     await supabase?.auth.signOut();
   }
@@ -258,13 +270,11 @@ function Home({ user, guest, onGuest }: { user: User | null; guest: boolean; onG
                       {b.savedAt ? new Date(b.savedAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }) : ''}
                     </span>
                   </a>
-                  {!user && (
-                    <button
-                      className="history-del"
-                      aria-label="목록에서 삭제"
-                      onClick={() => { removeFromLocalHistory(b.id); setLocalHistory(getLocalHistory()); }}
-                    >×</button>
-                  )}
+                  <button
+                    className="history-del"
+                    aria-label="보드 삭제"
+                    onClick={() => deleteBoard(b.id)}
+                  >×</button>
                 </li>
               ))}
             </ul>
