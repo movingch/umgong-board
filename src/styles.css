@@ -255,6 +255,24 @@ button:disabled { opacity: .55; cursor: wait; }
   .empty-board { display: none !important; }
 }
 
+/* 로그인 화면 */
+.home-top-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 4px; }
+.user-info { display: flex; align-items: center; gap: 10px; }
+.user-email { font-size: 13px; color: var(--muted); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+.logout-btn { border: 1px solid var(--line); background: white; border-radius: 10px; padding: 6px 12px; font-size: 13px; font-weight: 700; color: var(--muted); cursor: pointer; }
+.logout-btn:hover { color: var(--ink); border-color: var(--ink); }
+
+/* 매직 링크 전송 완료 */
+.magic-sent { text-align: center; padding: 24px 0 8px; }
+.magic-icon { font-size: 52px; margin-bottom: 12px; }
+.magic-email { font-size: 18px; font-weight: 900; color: var(--ink); margin: 0 0 8px; }
+.magic-desc { color: var(--muted); line-height: 1.7; margin: 0 0 4px; }
+
+/* 로딩 */
+.loading-screen { min-height: 100vh; display: grid; place-items: center; flex-direction: column; gap: 16px; font-size: 18px; font-weight: 700; color: var(--muted); background: linear-gradient(135deg, #f4dfbd, #d5b17b); }
+.loading-spinner { width: 32px; height: 32px; border: 3px solid rgba(255,255,255,.4); border-top-color: var(--ink); border-radius: 50%; animation: spin .7s linear infinite; margin: 0 auto 12px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* 내 보드 히스토리 */
 .history-section { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 20px; }
 .history-title { font-weight: 900; font-size: 15px; color: var(--muted); margin-bottom: 10px; }

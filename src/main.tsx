@@ -2,45 +2,38 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QRCodeSVG } from 'qrcode.react';
 import { supabase, isSupabaseReady } from './lib/supabase';
+import type { User } from '@supabase/supabase-js';
 import type { Board, BoardItem } from './types';
 import './styles.css';
 
 const BUCKET = 'board-images';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// ── 내 보드 히스토리 ──────────────────────────────────────
+// ── 내 보드 히스토리 (데모 모드용 localStorage) ───────────
 type SavedBoard = { id: string; title: string; savedAt: string };
 
-function getHistory(): SavedBoard[] {
+function getLocalHistory(): SavedBoard[] {
   return JSON.parse(localStorage.getItem('board-history') || '[]');
 }
-
-function saveToHistory(id: string, title: string) {
-  const history = getHistory().filter((b) => b.id !== id);
-  const updated = [{ id, title, savedAt: new Date().toISOString() }, ...history].slice(0, 20);
-  localStorage.setItem('board-history', JSON.stringify(updated));
+function saveToLocalHistory(id: string, title: string) {
+  const history = getLocalHistory().filter((b) => b.id !== id);
+  localStorage.setItem('board-history', JSON.stringify(
+    [{ id, title, savedAt: new Date().toISOString() }, ...history].slice(0, 20)
+  ));
 }
-
-function removeFromHistory(id: string) {
-  localStorage.setItem(
-    'board-history',
-    JSON.stringify(getHistory().filter((b) => b.id !== id)),
-  );
+function removeFromLocalHistory(id: string) {
+  localStorage.setItem('board-history', JSON.stringify(getLocalHistory().filter((b) => b.id !== id)));
 }
 
 // ── 유틸 ─────────────────────────────────────────────────
-function uid() {
-  return crypto.randomUUID();
-}
+function uid() { return crypto.randomUUID(); }
 
 function getPathParts() {
   const parts = window.location.pathname.split('/').filter(Boolean);
   return { mode: parts[0] || 'home', boardId: parts[1] || '' };
 }
 
-function getBaseUrl() {
-  return window.location.origin;
-}
+function getBaseUrl() { return window.location.origin; }
 
 function randomRotate() {
   return [-5, -4, -3, -2, 2, 3, 4, 5][Math.floor(Math.random() * 8)];
@@ -62,10 +55,7 @@ async function resizeImage(file: File, maxWidth = 1600, quality = 0.82): Promise
   if (!ctx) throw new Error('이미지 처리에 실패했습니다.');
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
   return new Promise((resolve) => {
-    canvas.toBlob((blob) => {
-      URL.revokeObjectURL(url);
-      resolve(blob || file);
-    }, 'image/jpeg', quality);
+    canvas.toBlob((blob) => { URL.revokeObjectURL(url); resolve(blob || file); }, 'image/jpeg', quality);
   });
 }
 
@@ -77,46 +67,28 @@ function dataUrlToBlob(dataUrl: string): Blob {
     const arr = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i);
     return new Blob([arr], { type: mime });
-  } catch {
-    throw new Error('이미지 변환에 실패했습니다.');
-  }
+  } catch { throw new Error('이미지 변환에 실패했습니다.'); }
 }
 
 function textToImageBlob(text: string, uploaderName: string): Promise<Blob> {
   const canvas = document.createElement('canvas');
-  canvas.width = 800;
-  canvas.height = 600;
+  canvas.width = 800; canvas.height = 600;
   const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#fffdf6';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = '#c89f62';
-  ctx.font = 'bold 22px ui-sans-serif, system-ui, sans-serif';
+  ctx.fillStyle = '#fffdf6'; ctx.fillRect(0, 0, 800, 600);
+  ctx.fillStyle = '#c89f62'; ctx.font = 'bold 22px ui-sans-serif, system-ui, sans-serif';
   ctx.fillText(uploaderName || '이름 없는 참여자', 40, 52);
-  ctx.strokeStyle = '#e1c7a5';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(40, 70);
-  ctx.lineTo(760, 70);
-  ctx.stroke();
-  ctx.fillStyle = '#241914';
-  ctx.font = '30px ui-sans-serif, system-ui, sans-serif';
-  const maxLineWidth = 720;
-  const lineHeight = 46;
+  ctx.strokeStyle = '#e1c7a5'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(40, 70); ctx.lineTo(760, 70); ctx.stroke();
+  ctx.fillStyle = '#241914'; ctx.font = '30px ui-sans-serif, system-ui, sans-serif';
   let y = 116;
   for (const paragraph of text.split('\n')) {
     let line = '';
     for (const char of paragraph) {
       const test = line + char;
-      if (ctx.measureText(test).width > maxLineWidth) {
-        ctx.fillText(line, 40, y);
-        y += lineHeight;
-        line = char;
-        if (y > 540) break;
-      } else {
-        line = test;
-      }
+      if (ctx.measureText(test).width > 720) { ctx.fillText(line, 40, y); y += 46; line = char; if (y > 540) break; }
+      else line = test;
     }
-    if (line && y <= 540) { ctx.fillText(line, 40, y); y += lineHeight; }
+    if (line && y <= 540) { ctx.fillText(line, 40, y); y += 46; }
     if (y > 540) break;
   }
   return new Promise((resolve) => { canvas.toBlob((blob) => resolve(blob!), 'image/png'); });
@@ -125,20 +97,12 @@ function textToImageBlob(text: string, uploaderName: string): Promise<Blob> {
 async function uploadBlob(boardId: string, blob: Blob, ext: string) {
   if (!supabase) return URL.createObjectURL(blob);
   const path = `${boardId}/${Date.now()}-${uid()}.${ext}`;
-  const { error } = await supabase.storage.from(BUCKET).upload(path, blob, {
-    cacheControl: '3600',
-    upsert: false,
-    contentType: blob.type,
-  });
+  const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { cacheControl: '3600', upsert: false, contentType: blob.type });
   if (error) throw error;
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
-  return data.publicUrl;
+  return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
-// ── 보드 인쇄 / PDF 저장 ─────────────────────────────────
-function printBoard() {
-  window.print();
-}
+function printBoard() { window.print(); }
 
 // ── Toast ────────────────────────────────────────────────
 function useToast() {
@@ -157,40 +121,78 @@ function Toast({ toast }: { toast: { msg: string; type: 'success' | 'error' } | 
   return <div className={`toast toast-${toast.type}`}>{toast.msg}</div>;
 }
 
-// ── App ───────────────────────────────────────────────────
+// ── App (인증 상태 관리) ──────────────────────────────────
 function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(!supabase); // 데모 모드면 바로 준비
+
+  useEffect(() => {
+    if (!supabase) return;
+    // 현재 세션 확인
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setAuthReady(true);
+    });
+    // 로그인/로그아웃 이벤트 감지
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
   const route = getPathParts();
+
+  if (!authReady) {
+    return <div className="loading-screen"><div className="loading-spinner" />잠시만요...</div>;
+  }
+
   if (route.mode === 'board' && route.boardId) {
     if (!UUID_RE.test(route.boardId)) return <div className="error-page">잘못된 보드 주소입니다.</div>;
-    return <BoardScreen boardId={route.boardId} />;
+    return <BoardScreen boardId={route.boardId} user={user} />;
   }
   if (route.mode === 'join' && route.boardId) {
     if (!UUID_RE.test(route.boardId)) return <div className="error-page">잘못된 보드 주소입니다.</div>;
     return <JoinScreen boardId={route.boardId} />;
   }
-  return <Home />;
+  return <Home user={user} />;
 }
 
 // ── Home ─────────────────────────────────────────────────
-function Home() {
+function Home({ user }: { user: User | null }) {
   const [title, setTitle] = useState('오늘의 생각보드');
   const [busy, setBusy] = useState(false);
-  const [history, setHistory] = useState<SavedBoard[]>(getHistory);
+  const [myBoards, setMyBoards] = useState<Board[]>([]);
+  const [localHistory, setLocalHistory] = useState<SavedBoard[]>(getLocalHistory);
   const { toast, show } = useToast();
+
+  // 로그인된 경우 Supabase에서 내 보드 목록 불러오기
+  useEffect(() => {
+    if (!user || !supabase) return;
+    supabase
+      .from('boards')
+      .select('*')
+      .eq('owner_id', user.id)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => { if (data) setMyBoards(data as Board[]); });
+  }, [user]);
 
   async function createBoard() {
     setBusy(true);
     try {
       if (!supabase) {
+        // 데모 모드
         const id = uid();
         localStorage.setItem(`demo-board-${id}`, JSON.stringify({ id, title }));
-        saveToHistory(id, title);
+        saveToLocalHistory(id, title);
         window.location.href = `/board/${id}`;
         return;
       }
-      const { data, error } = await supabase.from('boards').insert({ title }).select().single();
+      const { data, error } = await supabase
+        .from('boards')
+        .insert({ title, owner_id: user!.id })
+        .select()
+        .single();
       if (error) throw error;
-      saveToHistory(data.id, title);
       window.location.href = `/board/${data.id}`;
     } catch (e) {
       show(e instanceof Error ? e.message : '보드 생성에 실패했습니다.', 'error');
@@ -199,25 +201,36 @@ function Home() {
     }
   }
 
-  function deleteHistory(id: string) {
-    removeFromHistory(id);
-    setHistory(getHistory());
+  async function logout() {
+    await supabase?.auth.signOut();
   }
 
+  // 로그인 안 된 상태
+  if (supabase && !user) {
+    return <LoginScreen />;
+  }
+
+  // 로그인된 상태 (또는 데모 모드)
   return (
     <main className="home">
       <section className="hero-card">
-        <div className="brand">생각보드</div>
+        <div className="home-top-bar">
+          <div className="brand">생각보드</div>
+          {user && (
+            <div className="user-info">
+              <span className="user-email">{user.email}</span>
+              <button className="logout-btn" onClick={logout}>로그아웃</button>
+            </div>
+          )}
+        </div>
+
         <h1>스마트폰으로 그리고, PC 화면에 함께 전시합니다.</h1>
-        <p>
-          회의 참석자는 QR로 들어와 사진이나 낙서를 올리고, 진행자는 큰 화면에서 보드판처럼
-          보여주며 설명할 수 있습니다.
-        </p>
+        <p>회의 참석자는 QR로 들어와 사진이나 낙서를 올리고, 진행자는 큰 화면에서 보드판처럼 보여주며 설명할 수 있습니다.</p>
+
         {!isSupabaseReady && (
-          <div className="warning">
-            현재 Supabase 환경변수가 없어 데모 모드로 실행됩니다.
-          </div>
+          <div className="warning">현재 Supabase 환경변수가 없어 데모 모드로 실행됩니다.</div>
         )}
+
         <label className="field-label" htmlFor="board-title">보드 제목</label>
         <input
           id="board-title"
@@ -230,26 +243,28 @@ function Home() {
           {busy ? '만드는 중...' : '새 보드 만들기'}
         </button>
 
-        {/* 내 보드 히스토리 */}
-        {history.length > 0 && (
+        {/* 내 보드 목록 (로그인 시 Supabase, 데모 시 localStorage) */}
+        {(user ? myBoards.length > 0 : localHistory.length > 0) && (
           <div className="history-section">
-            <div className="history-title">최근 보드</div>
+            <div className="history-title">
+              {user ? '☁️ 내 보드 목록' : '최근 보드'}
+            </div>
             <ul className="history-list">
-              {history.map((b) => (
+              {(user ? myBoards.map(b => ({ id: b.id, title: b.title, savedAt: b.created_at || '' })) : localHistory).map((b) => (
                 <li key={b.id} className="history-item">
                   <a href={`/board/${b.id}`} className="history-link">
                     <span className="history-name">{b.title}</span>
                     <span className="history-date">
-                      {new Date(b.savedAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })}
+                      {b.savedAt ? new Date(b.savedAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }) : ''}
                     </span>
                   </a>
-                  <button
-                    className="history-del"
-                    aria-label="목록에서 삭제"
-                    onClick={() => deleteHistory(b.id)}
-                  >
-                    ×
-                  </button>
+                  {!user && (
+                    <button
+                      className="history-del"
+                      aria-label="목록에서 삭제"
+                      onClick={() => { removeFromLocalHistory(b.id); setLocalHistory(getLocalHistory()); }}
+                    >×</button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -261,8 +276,79 @@ function Home() {
   );
 }
 
+// ── 로그인 화면 ───────────────────────────────────────────
+function LoginScreen() {
+  const [email, setEmail] = useState('');
+  const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const { toast, show } = useToast();
+
+  async function sendMagicLink() {
+    if (!email.trim() || !supabase) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email: email.trim(),
+        options: { emailRedirectTo: window.location.origin },
+      });
+      if (error) throw error;
+      setSent(true);
+    } catch (e) {
+      show(e instanceof Error ? e.message : '오류가 발생했습니다.', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="home">
+      <section className="hero-card">
+        <div className="brand">생각보드</div>
+        <h1>스마트폰으로 그리고, PC 화면에 함께 전시합니다.</h1>
+        <p>내 보드를 저장하고 어느 기기에서든 불러오려면 이메일로 로그인하세요.</p>
+
+        {sent ? (
+          // 이메일 전송 완료 화면
+          <div className="magic-sent">
+            <div className="magic-icon">📧</div>
+            <p className="magic-email">{email}</p>
+            <p className="magic-desc">
+              로 로그인 링크를 보냈습니다.<br />
+              이메일 받은편지함을 확인하고<br />
+              링크를 클릭하면 자동으로 로그인됩니다.
+            </p>
+            <button className="soft-btn" style={{ marginTop: 16 }} onClick={() => setSent(false)}>
+              다시 보내기
+            </button>
+          </div>
+        ) : (
+          // 이메일 입력 화면
+          <>
+            <label className="field-label" htmlFor="login-email">이메일 주소</label>
+            <input
+              id="login-email"
+              type="email"
+              className="title-input"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="your@email.com"
+              onKeyDown={(e) => e.key === 'Enter' && sendMagicLink()}
+              autoFocus
+            />
+            <button className="primary-btn" disabled={busy || !email.trim()} onClick={sendMagicLink}>
+              {busy ? '전송 중...' : '✉️ 로그인 링크 받기'}
+            </button>
+            <p className="hint">비밀번호 없이 이메일 링크 한 번으로 로그인됩니다.</p>
+          </>
+        )}
+      </section>
+      <Toast toast={toast} />
+    </main>
+  );
+}
+
 // ── BoardScreen (진행자) ──────────────────────────────────
-function BoardScreen({ boardId }: { boardId: string }) {
+function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) {
   const [board, setBoard] = useState<Board | null>(null);
   const [items, setItems] = useState<BoardItem[]>([]);
   const [selected, setSelected] = useState<BoardItem | null>(null);
@@ -275,7 +361,7 @@ function BoardScreen({ boardId }: { boardId: string }) {
         const storedBoard = localStorage.getItem(`demo-board-${boardId}`);
         const b = storedBoard ? JSON.parse(storedBoard) : { id: boardId, title: '데모 생각보드' };
         setBoard(b);
-        saveToHistory(boardId, b.title);
+        saveToLocalHistory(boardId, b.title);
         setItems(JSON.parse(localStorage.getItem(`demo-items-${boardId}`) || '[]'));
         return;
       }
@@ -283,10 +369,7 @@ function BoardScreen({ boardId }: { boardId: string }) {
         supabase.from('boards').select('*').eq('id', boardId).single(),
         supabase.from('board_items').select('*').eq('board_id', boardId).order('created_at', { ascending: true }),
       ]);
-      if (b) {
-        setBoard(b);
-        saveToHistory(boardId, b.title);
-      }
+      if (b) setBoard(b as Board);
       if (!error && loadedItems) setItems(loadedItems as BoardItem[]);
     }
     load();
@@ -320,7 +403,7 @@ function BoardScreen({ boardId }: { boardId: string }) {
       return;
     }
     const { error } = await supabase.from('board_items').delete().eq('id', id);
-    if (error) setItems(prev);
+    if (error) { setItems(prev); show('삭제에 실패했습니다.', 'error'); }
   }
 
   function typeLabel(type: BoardItem['type']) {
@@ -328,6 +411,9 @@ function BoardScreen({ boardId }: { boardId: string }) {
     if (type === 'text') return '텍스트';
     return '사진';
   }
+
+  // 보드 소유자 여부 (삭제 버튼 표시 조건)
+  const isOwner = !supabase || (user && board && (board as any).owner_id === user.id);
 
   return (
     <main className="board-page">
@@ -348,9 +434,8 @@ function BoardScreen({ boardId }: { boardId: string }) {
         <button className="soft-btn" onClick={() => document.documentElement.requestFullscreen?.()}>전체화면</button>
         <button className="soft-btn" onClick={() => navigator.clipboard.writeText(joinUrl).then(() => show('링크를 복사했습니다.', 'success'))}>참여 링크 복사</button>
         <div className="toolbar-divider" />
-        <button className="soft-btn export-btn" disabled={items.length === 0} onClick={printBoard}>
-          🖨️ 인쇄 / PDF 저장
-        </button>
+        <button className="soft-btn export-btn" disabled={items.length === 0} onClick={printBoard}>🖨️ 인쇄 / PDF 저장</button>
+        <a className="soft-btn" href="/">← 내 보드 목록</a>
       </section>
 
       <section className="cork-board">
@@ -358,23 +443,16 @@ function BoardScreen({ boardId }: { boardId: string }) {
           <div className="empty-board">아직 붙은 그림이 없습니다. QR로 접속해서 첫 번째 생각을 붙여보세요.</div>
         ) : (
           items.map((item) => (
-            <article
-              key={item.id}
-              className="photo-note"
-              style={{ transform: `rotate(${item.rotate}deg)` }}
-              onClick={() => setSelected(item)}
-            >
+            <article key={item.id} className="photo-note" style={{ transform: `rotate(${item.rotate}deg)` }} onClick={() => setSelected(item)}>
               <div className="tape" />
               <img src={item.image_url} alt={item.caption || '보드 이미지'} loading="lazy" crossOrigin="anonymous" />
               <div className="note-footer">
                 <strong>{item.uploader_name || '참여자'}</strong>
                 <span>{typeLabel(item.type)}</span>
               </div>
-              <button
-                className="delete-btn"
-                aria-label="항목 삭제"
-                onClick={(e) => { e.stopPropagation(); removeItem(item.id); }}
-              >×</button>
+              {isOwner && (
+                <button className="delete-btn" aria-label="항목 삭제" onClick={(e) => { e.stopPropagation(); removeItem(item.id); }}>×</button>
+              )}
             </article>
           ))
         )}
@@ -386,7 +464,7 @@ function BoardScreen({ boardId }: { boardId: string }) {
   );
 }
 
-// ── JoinScreen (참여자) ───────────────────────────────────
+// ── JoinScreen (참여자 — 로그인 불필요) ──────────────────
 function JoinScreen({ boardId }: { boardId: string }) {
   const [name, setName] = useState(localStorage.getItem('saenggak-name') || '');
   const [caption, setCaption] = useState('');
@@ -402,13 +480,9 @@ function JoinScreen({ boardId }: { boardId: string }) {
       localStorage.setItem('saenggak-name', name);
       const imageUrl = await uploadBlob(boardId, blob, ext);
       const item: BoardItem = {
-        id: uid(),
-        board_id: boardId,
-        type,
-        image_url: imageUrl,
+        id: uid(), board_id: boardId, type, image_url: imageUrl,
         uploader_name: name.trim() || '이름 없는 참여자',
-        caption: caption.trim() || null,
-        rotate: randomRotate(),
+        caption: caption.trim() || null, rotate: randomRotate(),
         created_at: new Date().toISOString(),
       };
       if (!supabase) {
@@ -429,18 +503,13 @@ function JoinScreen({ boardId }: { boardId: string }) {
 
   async function handleFiles(files: FileList | null) {
     if (!files?.[0]) return;
-    try {
-      const blob = await resizeImage(files[0]);
-      await saveItem('photo', blob, 'jpg');
-    } catch (e) {
-      show(e instanceof Error ? e.message : '이미지 처리에 실패했습니다.', 'error');
-    }
+    try { await saveItem('photo', await resizeImage(files[0]), 'jpg'); }
+    catch (e) { show(e instanceof Error ? e.message : '이미지 처리에 실패했습니다.', 'error'); }
     if (fileRef.current) fileRef.current.value = '';
   }
 
   async function handleTextSave(text: string) {
-    const blob = await textToImageBlob(text, name.trim() || '이름 없는 참여자');
-    await saveItem('text', blob, 'png');
+    await saveItem('text', await textToImageBlob(text, name.trim() || '이름 없는 참여자'), 'png');
   }
 
   return (
@@ -448,9 +517,7 @@ function JoinScreen({ boardId }: { boardId: string }) {
       <section className="join-card">
         <div className="brand">생각보드 참여</div>
         <h1>사진이나 낙서를 보드에 붙이세요.</h1>
-        {!isSupabaseReady && (
-          <div className="warning">데모 모드입니다. 같은 브라우저 안에서만 확인됩니다.</div>
-        )}
+        {!isSupabaseReady && <div className="warning">데모 모드입니다. 같은 브라우저 안에서만 확인됩니다.</div>}
         <label className="field-label" htmlFor="join-name">이름</label>
         <input id="join-name" className="title-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="이름 또는 별명" />
         <label className="field-label" htmlFor="join-caption">짧은 설명</label>
@@ -464,12 +531,8 @@ function JoinScreen({ boardId }: { boardId: string }) {
         <p className="hint">스마트폰에서는 손가락으로 바로 그릴 수 있습니다.</p>
       </section>
       <Toast toast={toast} />
-      {drawOpen && (
-        <DrawingModal onClose={() => setDrawOpen(false)} onSave={(dataUrl) => saveItem('drawing', dataUrlToBlob(dataUrl), 'png')} />
-      )}
-      {textOpen && (
-        <TextModal onClose={() => setTextOpen(false)} onSave={handleTextSave} busy={busy} />
-      )}
+      {drawOpen && <DrawingModal onClose={() => setDrawOpen(false)} onSave={(dataUrl) => saveItem('drawing', dataUrlToBlob(dataUrl), 'png')} />}
+      {textOpen && <TextModal onClose={() => setTextOpen(false)} onSave={handleTextSave} busy={busy} />}
     </main>
   );
 }
@@ -477,34 +540,19 @@ function JoinScreen({ boardId }: { boardId: string }) {
 // ── TextModal ─────────────────────────────────────────────
 function TextModal({ onClose, onSave, busy }: { onClose: () => void; onSave: (text: string) => Promise<void>; busy: boolean }) {
   const [text, setText] = useState('');
-
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
-
-  async function handleSave() {
-    if (!text.trim()) return;
-    await onSave(text.trim());
-    onClose();
-  }
-
   return (
     <div className="draw-backdrop">
       <section className="draw-panel">
         <h2>텍스트 작성</h2>
-        <textarea
-          className="text-input-area"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="생각을 자유롭게 적어보세요..."
-          rows={8}
-          autoFocus
-        />
+        <textarea className="text-input-area" value={text} onChange={(e) => setText(e.target.value)} placeholder="생각을 자유롭게 적어보세요..." rows={8} autoFocus />
         <div className="draw-actions">
           <button className="secondary-btn" onClick={onClose}>취소</button>
-          <button className="primary-btn" disabled={busy || !text.trim()} onClick={handleSave}>
+          <button className="primary-btn" disabled={busy || !text.trim()} onClick={async () => { if (!text.trim()) return; await onSave(text.trim()); onClose(); }}>
             {busy ? '올리는 중...' : '보드에 붙이기'}
           </button>
         </div>
@@ -549,47 +597,28 @@ function DrawingModal({ onClose, onSave }: { onClose: () => void; onSave: (dataU
     const rect = e.currentTarget.getBoundingClientRect();
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }
-
   function down(e: React.PointerEvent<HTMLCanvasElement>) {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const canvas = canvasRef.current; if (!canvas) return;
     canvas.setPointerCapture(e.pointerId);
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    const p = point(e);
-    drawing.current = true;
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y);
+    const ctx = canvas.getContext('2d'); if (!ctx) return;
+    const p = point(e); drawing.current = true;
+    ctx.beginPath(); ctx.moveTo(p.x, p.y);
   }
-
   function move(e: React.PointerEvent<HTMLCanvasElement>) {
     if (!drawing.current) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const canvas = canvasRef.current; if (!canvas) return;
+    const ctx = canvas.getContext('2d'); if (!ctx) return;
     const p = point(e);
-    ctx.lineWidth = size;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
+    ctx.lineWidth = size; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.strokeStyle = eraser ? '#fffdf6' : color;
-    ctx.lineTo(p.x, p.y);
-    ctx.stroke();
+    ctx.lineTo(p.x, p.y); ctx.stroke();
   }
-
-  function up() {
-    drawing.current = false;
-    canvasRef.current?.getContext('2d')?.closePath();
-  }
-
+  function up() { drawing.current = false; canvasRef.current?.getContext('2d')?.closePath(); }
   function clear() {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const canvas = canvasRef.current; if (!canvas) return;
+    const ctx = canvas.getContext('2d'); if (!ctx) return;
     const rect = canvas.getBoundingClientRect();
-    ctx.fillStyle = '#fffdf6';
-    ctx.fillRect(0, 0, rect.width, rect.height);
+    ctx.fillStyle = '#fffdf6'; ctx.fillRect(0, 0, rect.width, rect.height);
   }
 
   return (
@@ -619,7 +648,6 @@ function ImageModal({ item, onClose }: { item: BoardItem; onClose: () => void })
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
-
   return (
     <div className="image-modal" onClick={onClose}>
       <div className="image-stage">
