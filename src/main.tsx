@@ -104,6 +104,49 @@ async function uploadBlob(boardId: string, blob: Blob, ext: string) {
 
 function printBoard() { window.print(); }
 
+// ── PWA 설치 버튼 ─────────────────────────────────────────
+function useInstallPrompt() {
+  const [prompt, setPrompt] = useState<any>(null);
+  const [isIOS, setIsIOS] = useState(false);
+
+  useEffect(() => {
+    setIsIOS(/iphone|ipad|ipod/i.test(navigator.userAgent) && !(window.navigator as any).standalone);
+    const handler = (e: Event) => { e.preventDefault(); setPrompt(e); };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  async function install() {
+    if (!prompt) return;
+    prompt.prompt();
+    await prompt.userChoice;
+    setPrompt(null);
+  }
+
+  return { prompt, isIOS, install };
+}
+
+function InstallButton() {
+  const { prompt, isIOS, install } = useInstallPrompt();
+  const [showIOSTip, setShowIOSTip] = useState(false);
+
+  if (isIOS) return (
+    <div style={{ position: 'relative' }}>
+      <button className="install-btn" onClick={() => setShowIOSTip(!showIOSTip)}>
+        홈화면에 추가
+      </button>
+      {showIOSTip && (
+        <div className="ios-tip">
+          Safari 하단 <strong>공유 버튼 →</strong><br />
+          <strong>홈 화면에 추가</strong> 를 눌러주세요
+        </div>
+      )}
+    </div>
+  );
+  if (!prompt) return null;
+  return <button className="install-btn" onClick={install}>홈화면에 추가</button>;
+}
+
 // ── Toast ────────────────────────────────────────────────
 function useToast() {
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
@@ -228,12 +271,15 @@ function Home({ user, guest, onGuest }: { user: User | null; guest: boolean; onG
       <section className="hero-card">
         <div className="home-top-bar">
           <div className="brand">생각보드</div>
-          {user && (
-            <div className="user-info">
-              <span className="user-email">{user.email}</span>
-              <button className="logout-btn" onClick={logout}>로그아웃</button>
-            </div>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <InstallButton />
+            {user && (
+              <div className="user-info">
+                <span className="user-email">{user.email}</span>
+                <button className="logout-btn" onClick={logout}>로그아웃</button>
+              </div>
+            )}
+          </div>
         </div>
 
         <h1>스마트폰으로 그리고, PC 화면에 함께 전시합니다.</h1>
@@ -315,7 +361,10 @@ function LoginScreen({ onGuest }: { onGuest: () => void }) {
   return (
     <main className="home">
       <section className="hero-card">
-        <div className="brand">생각보드</div>
+        <div className="home-top-bar" style={{ marginBottom: 8 }}>
+          <div className="brand">생각보드</div>
+          <InstallButton />
+        </div>
         <h1>스마트폰으로 그리고, PC 화면에 함께 전시합니다.</h1>
         <p>내 보드를 저장하고 어느 기기에서든 불러오려면 로그인하세요.</p>
 
