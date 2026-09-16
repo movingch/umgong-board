@@ -105,6 +105,25 @@ button:disabled { opacity: .55; cursor: wait; }
 }
 .board-header h1 { font-size: clamp(26px, 3.5vw, 46px); margin: 4px 0 2px; }
 .board-header p { margin: 0; font-size: 14px; }
+.qr-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(16,10,7,.88);
+  display: grid;
+  place-items: center;
+  cursor: zoom-out;
+}
+.qr-modal-inner {
+  background: white;
+  border-radius: 28px;
+  padding: 36px 40px;
+  text-align: center;
+  box-shadow: 0 40px 100px rgba(0,0,0,.5);
+  cursor: default;
+}
+.qr-modal-inner p { margin: 16px 0 20px; font-weight: 700; color: var(--muted); font-size: 16px; }
+.qr-modal-close { border: 0; border-radius: 12px; background: var(--ink); color: white; padding: 12px 32px; font-weight: 900; font-size: 15px; }
 .qr-box {
   min-width: 150px;
   display: grid;

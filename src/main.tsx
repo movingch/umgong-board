@@ -417,6 +417,7 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
   const [board, setBoard] = useState<Board | null>(null);
   const [items, setItems] = useState<BoardItem[]>([]);
   const [selected, setSelected] = useState<BoardItem | null>(null);
+  const [qrExpanded, setQrExpanded] = useState(false);
   const { toast, show } = useToast();
   const joinUrl = `${getBaseUrl()}/join/${boardId}`;
 
@@ -488,10 +489,19 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
           <h1>{board?.title || '생각보드'}</h1>
           <p>참여자는 스마트폰으로 그리고 올립니다. 진행자는 이 화면을 빔프로젝터에 띄우세요.</p>
         </div>
-        <div className="qr-box">
+        <div className="qr-box" onClick={() => setQrExpanded(true)} style={{ cursor: 'zoom-in' }} title="클릭하면 크게 보입니다">
           <QRCodeSVG value={joinUrl} size={110} />
           <span>스마트폰 참여 QR</span>
         </div>
+        {qrExpanded && (
+          <div className="qr-modal" onClick={() => setQrExpanded(false)}>
+            <div className="qr-modal-inner" onClick={e => e.stopPropagation()}>
+              <QRCodeSVG value={joinUrl} size={280} />
+              <p>스마트폰으로 QR을 스캔하세요</p>
+              <button className="qr-modal-close" onClick={() => setQrExpanded(false)}>닫기</button>
+            </div>
+          </div>
+        )}
       </header>
 
       <section className="board-toolbar">
