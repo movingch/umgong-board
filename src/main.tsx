@@ -335,22 +335,33 @@ function Home({ user, guest, onGuest }: { user: User | null; guest: boolean; onG
 // ── 로그인 화면 ───────────────────────────────────────────
 function LoginScreen({ onGuest }: { onGuest: () => void }) {
   const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const { toast, show } = useToast();
 
-  async function sendLink() {
+  async function sendCode() {
     if (!email.trim() || !supabase) return;
     setBusy(true);
     try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email: email.trim(),
-        options: { emailRedirectTo: window.location.origin },
-      });
+      const { error } = await supabase.auth.signInWithOtp({ email: email.trim() });
       if (error) throw error;
       setSent(true);
     } catch (e: any) {
       show(e?.message || '오류가 발생했습니다.', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function verifyCode() {
+    if (!code.trim() || !supabase) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: 'email' });
+      if (error) throw error;
+    } catch (e: any) {
+      show(e?.message || '코드가 올바르지 않습니다.', 'error');
     } finally {
       setBusy(false);
     }
@@ -366,14 +377,7 @@ function LoginScreen({ onGuest }: { onGuest: () => void }) {
         <h1>스마트폰으로 그리고, PC 화면에 함께 전시합니다.</h1>
         <p>내 보드를 저장하고 어느 기기에서든 불러오려면 이메일로 로그인하세요.</p>
 
-        {sent ? (
-          <div className="magic-sent">
-            <div className="magic-icon">📧</div>
-            <p className="magic-email">{email}</p>
-            <p className="magic-desc">로 로그인 링크를 보냈습니다.<br />이메일을 확인하고 링크를 클릭하면 바로 로그인됩니다.</p>
-            <button className="soft-btn" style={{ marginTop: 16 }} onClick={() => setSent(false)}>다시 보내기</button>
-          </div>
-        ) : (
+        {!sent ? (
           <>
             <label className="field-label" htmlFor="login-email">이메일 주소</label>
             <input
@@ -383,13 +387,42 @@ function LoginScreen({ onGuest }: { onGuest: () => void }) {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="your@email.com"
-              onKeyDown={(e) => e.key === 'Enter' && sendLink()}
+              onKeyDown={(e) => e.key === 'Enter' && sendCode()}
               autoFocus
             />
-            <button className="primary-btn" disabled={busy || !email.trim()} onClick={sendLink}>
-              {busy ? '전송 중...' : '✉️ 로그인 링크 받기'}
+            <button className="primary-btn" disabled={busy || !email.trim()} onClick={sendCode}>
+              {busy ? '전송 중...' : '인증 코드 받기'}
             </button>
-            <p className="hint">비밀번호 없이 이메일 링크 한 번으로 로그인됩니다.</p>
+            <p className="hint">이메일로 6자리 코드를 보내드립니다.</p>
+          </>
+        ) : (
+          <>
+            <div className="magic-sent">
+              <div className="magic-icon">📧</div>
+              <p className="magic-email">{email}</p>
+              <p className="magic-desc">로 6자리 코드를 보냈습니다.<br />이메일을 확인하고 아래에 입력하세요.</p>
+            </div>
+            <label className="field-label" htmlFor="login-code">인증 코드 6자리</label>
+            <input
+              id="login-code"
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              className="title-input otp-input"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+              placeholder="123456"
+              onKeyDown={(e) => e.key === 'Enter' && verifyCode()}
+              autoFocus
+            />
+            <button className="primary-btn" disabled={busy || code.length < 6} onClick={verifyCode}>
+              {busy ? '확인 중...' : '로그인'}
+            </button>
+            <p className="hint">
+              <button className="link-btn" onClick={() => { setSent(false); setCode(''); }}>← 이메일 다시 입력</button>
+              {' · '}
+              <button className="link-btn" onClick={sendCode}>코드 재전송</button>
+            </p>
           </>
         )}
 
