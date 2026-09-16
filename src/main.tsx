@@ -513,22 +513,11 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
           <h1>{board?.title || '생각보드'}</h1>
           <p>참여자는 스마트폰으로 그리고 올립니다. 진행자는 이 화면을 빔프로젝터에 띄우세요.</p>
         </div>
+        <div className={`qr-box ${qrExpanded ? 'qr-box--expanded' : ''}`} onClick={() => setQrExpanded(!qrExpanded)} style={{ cursor: qrExpanded ? 'zoom-out' : 'zoom-in' }} title={qrExpanded ? '클릭하면 작아집니다' : '클릭하면 크게 보입니다'}>
+          <QRCodeSVG value={joinUrl} size={qrExpanded ? 220 : 90} />
+          <span>{qrExpanded ? '스마트폰으로 QR 스캔' : 'QR 참여'}</span>
+        </div>
       </header>
-
-      {/* QR 코드 — 우측 하단 고정, 클릭으로 확대/축소 */}
-      <div className={`qr-float ${qrExpanded ? 'qr-float--expanded' : ''}`} onClick={() => setQrExpanded(!qrExpanded)} title={qrExpanded ? '클릭하면 작아집니다' : '클릭하면 크게 보입니다'}>
-        {qrExpanded ? (
-          <>
-            <QRCodeSVG value={joinUrl} size={220} />
-            <span className="qr-float__label">스마트폰으로 QR 스캔</span>
-          </>
-        ) : (
-          <>
-            <QRCodeSVG value={joinUrl} size={72} />
-            <span className="qr-float__label">QR</span>
-          </>
-        )}
-      </div>
 
       <section className="board-toolbar">
         <a className="soft-btn" href={joinUrl} target="_blank" rel="noopener noreferrer">참여자 화면 열기</a>
