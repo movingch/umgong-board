@@ -65,6 +65,7 @@ p { color: var(--muted); line-height: 1.55; }
 .install-btn:hover { background: var(--ink); color: white; }
 .ios-tip { position: absolute; right: 0; top: calc(100% + 8px); background: var(--ink); color: white; border-radius: 14px; padding: 12px 16px; font-size: 13px; line-height: 1.7; white-space: nowrap; z-index: 10; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
 .ios-tip::before { content: ''; position: absolute; top: -6px; right: 18px; width: 12px; height: 12px; background: var(--ink); transform: rotate(45deg); border-radius: 2px; }
+.reset-notice { background: #fff8e1; border: 1px solid #f0c040; border-radius: 14px; padding: 13px 16px; margin: 14px 0 4px; font-size: 14px; color: #6b4c00; line-height: 1.5; }
 .guest-divider { display: flex; align-items: center; gap: 12px; margin: 20px 0 0; color: var(--muted); font-size: 13px; }
 .guest-divider::before, .guest-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 .guest-btn { width: 100%; margin-top: 12px; padding: 13px 18px; border: 1.5px dashed var(--line); border-radius: 16px; background: transparent; color: var(--muted); font-weight: 700; font-size: 15px; display: flex; align-items: center; justify-content: center; gap: 10px; }
