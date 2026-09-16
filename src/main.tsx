@@ -334,30 +334,21 @@ function Home({ user, guest, onGuest }: { user: User | null; guest: boolean; onG
 
 // ── 로그인 화면 ───────────────────────────────────────────
 function LoginScreen({ onGuest }: { onGuest: () => void }) {
-  const [mode, setMode] = useState<'login' | 'signup' | 'reset'>('login');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const { toast, show } = useToast();
 
-  async function handleSubmit() {
+  async function sendLink() {
     if (!email.trim() || !supabase) return;
     setBusy(true);
     try {
-      if (mode === 'reset') {
-        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-          redirectTo: `${window.location.origin}/reset-password`,
-        });
-        if (error) throw error;
-        show('비밀번호 재설정 링크를 이메일로 보냈습니다.', 'success');
-        setMode('login');
-      } else if (mode === 'login') {
-        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.auth.signUp({ email: email.trim(), password });
-        if (error) throw error;
-      }
+      const { error } = await supabase.auth.signInWithOtp({
+        email: email.trim(),
+        options: { emailRedirectTo: window.location.origin },
+      });
+      if (error) throw error;
+      setSent(true);
     } catch (e: any) {
       show(e?.message || '오류가 발생했습니다.', 'error');
     } finally {
@@ -373,69 +364,33 @@ function LoginScreen({ onGuest }: { onGuest: () => void }) {
           <InstallButton />
         </div>
         <h1>스마트폰으로 그리고, PC 화면에 함께 전시합니다.</h1>
-        <p>내 보드를 저장하고 어느 기기에서든 불러오려면 로그인하세요.</p>
+        <p>내 보드를 저장하고 어느 기기에서든 불러오려면 이메일로 로그인하세요.</p>
 
-        {mode !== 'reset' && (
-          <div className="login-tabs">
-            <button className={mode === 'login' ? 'login-tab active' : 'login-tab'} onClick={() => setMode('login')}>로그인</button>
-            <button className={mode === 'signup' ? 'login-tab active' : 'login-tab'} onClick={() => setMode('signup')}>회원가입</button>
+        {sent ? (
+          <div className="magic-sent">
+            <div className="magic-icon">📧</div>
+            <p className="magic-email">{email}</p>
+            <p className="magic-desc">로 로그인 링크를 보냈습니다.<br />이메일을 확인하고 링크를 클릭하면 바로 로그인됩니다.</p>
+            <button className="soft-btn" style={{ marginTop: 16 }} onClick={() => setSent(false)}>다시 보내기</button>
           </div>
-        )}
-
-        {mode === 'reset' && (
-          <div className="reset-notice">
-            가입한 이메일을 입력하면 비밀번호 재설정 링크를 보내드립니다.
-          </div>
-        )}
-
-        <label className="field-label" htmlFor="login-email">이메일 주소</label>
-        <input
-          id="login-email"
-          type="email"
-          className="title-input"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="your@email.com"
-          onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-          autoFocus
-        />
-
-        {mode !== 'reset' && (
+        ) : (
           <>
-            <label className="field-label" htmlFor="login-password">비밀번호</label>
+            <label className="field-label" htmlFor="login-email">이메일 주소</label>
             <input
-              id="login-password"
-              type="password"
+              id="login-email"
+              type="email"
               className="title-input"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={mode === 'signup' ? '6자 이상 입력' : '비밀번호 입력'}
-              onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="your@email.com"
+              onKeyDown={(e) => e.key === 'Enter' && sendLink()}
+              autoFocus
             />
+            <button className="primary-btn" disabled={busy || !email.trim()} onClick={sendLink}>
+              {busy ? '전송 중...' : '✉️ 로그인 링크 받기'}
+            </button>
+            <p className="hint">비밀번호 없이 이메일 링크 한 번으로 로그인됩니다.</p>
           </>
-        )}
-
-        <button className="primary-btn" disabled={busy || !email.trim() || (mode !== 'reset' && !password)} onClick={handleSubmit}>
-          {busy ? '처리 중...' : mode === 'login' ? '로그인' : mode === 'signup' ? '회원가입' : '재설정 링크 받기'}
-        </button>
-
-        {mode === 'login' && (
-          <p className="hint">
-            비밀번호를 잊으셨나요?{' '}
-            <button className="link-btn" onClick={() => setMode('reset')}>비밀번호 재설정</button>
-            {' · '}
-            <button className="link-btn" onClick={() => setMode('signup')}>회원가입</button>
-          </p>
-        )}
-        {mode === 'signup' && (
-          <p className="hint">이미 계정이 있으신가요?{' '}
-            <button className="link-btn" onClick={() => setMode('login')}>로그인</button>
-          </p>
-        )}
-        {mode === 'reset' && (
-          <p className="hint">
-            <button className="link-btn" onClick={() => setMode('login')}>← 로그인으로 돌아가기</button>
-          </p>
         )}
 
         <div className="guest-divider"><span>또는</span></div>
