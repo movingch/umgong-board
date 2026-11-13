@@ -1,7 +1,10 @@
 export type Board = {
   id: string;
   title: string;
+  owner_id?: string | null;
   created_at?: string;
+  locked: boolean;
+  notice?: string | null;
 };
 
 export type BoardItem = {
@@ -13,4 +16,5 @@ export type BoardItem = {
   caption: string | null;
   rotate: number;
   created_at: string;
+  likes: number;
 };

@@ -164,6 +164,68 @@ function Toast({ toast }: { toast: { msg: string; type: 'success' | 'error' } | 
   return <div className={`toast toast-${toast.type}`}>{toast.msg}</div>;
 }
 
+// ── 발표자 추첨 훅 ────────────────────────────────────────
+function useRoulette(names: string[]) {
+  const [spinning, setSpinning] = useState(false);
+  const [current, setCurrent] = useState('');
+  const [result, setResult] = useState('');
+  const intervalRef = useRef<number>(0);
+
+  function spin() {
+    if (names.length === 0) return;
+    setResult('');
+    setSpinning(true);
+    let count = 0;
+    const total = 24 + Math.floor(Math.random() * 12);
+    clearInterval(intervalRef.current);
+    intervalRef.current = window.setInterval(() => {
+      setCurrent(names[Math.floor(Math.random() * names.length)]);
+      count++;
+      if (count >= total) {
+        clearInterval(intervalRef.current);
+        const winner = names[Math.floor(Math.random() * names.length)];
+        setCurrent(winner);
+        setResult(winner);
+        setSpinning(false);
+      }
+    }, count < total * 0.5 ? 60 : count < total * 0.8 ? 120 : 200);
+  }
+
+  useEffect(() => () => clearInterval(intervalRef.current), []);
+  return { spinning, current, result, spin };
+}
+
+// ── 타이머 훅 ─────────────────────────────────────────────
+function useTimer() {
+  const [seconds, setSeconds] = useState(0);
+  const [running, setRunning] = useState(false);
+  const intervalRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (running && seconds > 0) {
+      intervalRef.current = window.setInterval(() => {
+        setSeconds((s) => {
+          if (s <= 1) { setRunning(false); return 0; }
+          return s - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(intervalRef.current);
+  }, [running, seconds]);
+
+  function start(mins: number) {
+    setSeconds(mins * 60);
+    setRunning(true);
+  }
+  function pause() { setRunning(false); }
+  function resume() { if (seconds > 0) setRunning(true); }
+  function reset() { setRunning(false); setSeconds(0); }
+
+  const mm = String(Math.floor(seconds / 60)).padStart(2, '0');
+  const ss = String(seconds % 60).padStart(2, '0');
+  return { seconds, running, start, pause, resume, reset, display: `${mm}:${ss}` };
+}
+
 // ── App (인증 상태 관리) ──────────────────────────────────
 function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -207,7 +269,6 @@ function Home({ user, guest, onGuest }: { user: User | null; guest: boolean; onG
   const [localHistory, setLocalHistory] = useState<SavedBoard[]>(getLocalHistory);
   const { toast, show } = useToast();
 
-  // 로그인된 경우 Supabase에서 내 보드 목록 불러오기
   useEffect(() => {
     if (!user || !supabase) return;
     supabase
@@ -222,14 +283,12 @@ function Home({ user, guest, onGuest }: { user: User | null; guest: boolean; onG
     setBusy(true);
     try {
       if (!supabase) {
-        // 환경변수 없는 순수 데모 모드
         const id = uid();
-        localStorage.setItem(`demo-board-${id}`, JSON.stringify({ id, title }));
+        localStorage.setItem(`demo-board-${id}`, JSON.stringify({ id, title, locked: false }));
         saveToLocalHistory(id, title);
         window.location.href = `/board/${id}`;
         return;
       }
-      // 로그인 사용자: owner_id 포함 / 게스트: owner_id 없이 생성
       const { data, error } = await supabase
         .from('boards')
         .insert(user ? { title, owner_id: user.id } : { title })
@@ -260,12 +319,10 @@ function Home({ user, guest, onGuest }: { user: User | null; guest: boolean; onG
     await supabase?.auth.signOut();
   }
 
-  // 로그인 안 된 상태 (게스트 모드도 아닌 경우)
   if (supabase && !user && !guest) {
     return <LoginScreen onGuest={onGuest} />;
   }
 
-  // 로그인된 상태 (또는 데모 모드)
   return (
     <main className="home">
       <section className="hero-card">
@@ -301,7 +358,6 @@ function Home({ user, guest, onGuest }: { user: User | null; guest: boolean; onG
           {busy ? '만드는 중...' : '새 보드 만들기'}
         </button>
 
-        {/* 내 보드 목록 (로그인 시 Supabase, 데모 시 localStorage) */}
         {(user ? myBoards.length > 0 : localHistory.length > 0) && (
           <div className="history-section">
             <div className="history-title">
@@ -442,6 +498,17 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
   const [items, setItems] = useState<BoardItem[]>([]);
   const [selected, setSelected] = useState<BoardItem | null>(null);
   const [qrExpanded, setQrExpanded] = useState(false);
+  const [sortByLikes, setSortByLikes] = useState(false);
+  const [presenceCount, setPresenceCount] = useState(0);
+  const [raisedHands, setRaisedHands] = useState<{ id: string; name: string }[]>([]);
+  const [showRoulette, setShowRoulette] = useState(false);
+  const [noticeInput, setNoticeInput] = useState('');
+  const [noticeEditing, setNoticeEditing] = useState(false);
+  const [timerMinutes, setTimerMinutes] = useState('5');
+  const [showTimer, setShowTimer] = useState(false);
+  const timer = useTimer();
+  const uniqueNames = [...new Set(items.map((it) => it.uploader_name).filter(Boolean) as string[])];
+  const roulette = useRoulette(uniqueNames);
   const { toast, show } = useToast();
   const joinUrl = `${getBaseUrl()}/join/${boardId}`;
 
@@ -449,8 +516,9 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
     async function load() {
       if (!supabase) {
         const storedBoard = localStorage.getItem(`demo-board-${boardId}`);
-        const b = storedBoard ? JSON.parse(storedBoard) : { id: boardId, title: '데모 생각보드' };
+        const b = storedBoard ? JSON.parse(storedBoard) : { id: boardId, title: '데모 생각보드', locked: false };
         setBoard(b);
+        setNoticeInput(b.notice || '');
         saveToLocalHistory(boardId, b.title);
         setItems(JSON.parse(localStorage.getItem(`demo-items-${boardId}`) || '[]'));
         return;
@@ -459,7 +527,7 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
         supabase.from('boards').select('*').eq('id', boardId).single(),
         supabase.from('board_items').select('*').eq('board_id', boardId).order('created_at', { ascending: true }),
       ]);
-      if (b) setBoard(b as Board);
+      if (b) { setBoard(b as Board); setNoticeInput((b as any).notice || ''); }
       if (!error && loadedItems) setItems(loadedItems as BoardItem[]);
     }
     load();
@@ -467,21 +535,48 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
 
   useEffect(() => {
     if (!supabase) {
-      const timer = window.setInterval(() => {
+      const t = window.setInterval(() => {
         setItems(JSON.parse(localStorage.getItem(`demo-items-${boardId}`) || '[]'));
       }, 1000);
-      return () => window.clearInterval(timer);
+      return () => window.clearInterval(t);
     }
+
+    // Presence: 참여자 수 추적
+    const presenceChannel = supabase.channel(`presence-${boardId}`, { config: { presence: { key: 'facilitator' } } });
+    presenceChannel
+      .on('presence', { event: 'sync' }, () => {
+        const state = presenceChannel.presenceState();
+        const participants = Object.entries(state).filter(([k]) => k !== 'facilitator');
+        setPresenceCount(participants.length);
+        const hands: { id: string; name: string }[] = [];
+        participants.forEach(([key, presences]) => {
+          const p = (presences as any[])[0];
+          if (p?.hand_raised && p?.name) hands.push({ id: key, name: p.name });
+        });
+        setRaisedHands(hands);
+      })
+      .subscribe();
+
     const channel = supabase
       .channel(`board-${boardId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'board_items', filter: `board_id=eq.${boardId}` }, (payload) => {
         setItems((prev) => prev.some((it) => it.id === payload.new.id) ? prev : [...prev, payload.new as BoardItem]);
       })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'board_items', filter: `board_id=eq.${boardId}` }, (payload) => {
+        setItems((prev) => prev.map((it) => it.id === payload.new.id ? { ...it, likes: (payload.new as BoardItem).likes } : it));
+      })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'board_items', filter: `board_id=eq.${boardId}` }, (payload) => {
         setItems((prev) => prev.filter((it) => it.id !== payload.old.id));
       })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'boards', filter: `id=eq.${boardId}` }, (payload) => {
+        setBoard((prev) => prev ? { ...prev, ...(payload.new as Board) } : prev);
+      })
       .subscribe();
-    return () => { supabase?.removeChannel(channel); };
+
+    return () => {
+      supabase?.removeChannel(channel);
+      supabase?.removeChannel(presenceChannel);
+    };
   }, [boardId]);
 
   async function removeItem(id: string) {
@@ -496,14 +591,32 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
     if (error) { setItems(prev); show('삭제에 실패했습니다.', 'error'); }
   }
 
+  async function toggleLock() {
+    if (!supabase || !board) return;
+    const newLocked = !board.locked;
+    setBoard({ ...board, locked: newLocked });
+    await supabase.from('boards').update({ locked: newLocked }).eq('id', boardId);
+    show(newLocked ? '보드가 잠겼습니다. 새 제출이 차단됩니다.' : '보드가 열렸습니다.', 'success');
+  }
+
+  async function saveNotice() {
+    const notice = noticeInput.trim() || null;
+    if (supabase) {
+      await supabase.from('boards').update({ notice }).eq('id', boardId);
+    }
+    setBoard((b) => b ? { ...b, notice } : b);
+    setNoticeEditing(false);
+    show(notice ? '공지를 전송했습니다.' : '공지를 삭제했습니다.', 'success');
+  }
+
   function typeLabel(type: BoardItem['type']) {
     if (type === 'drawing') return '낙서';
     if (type === 'text') return '텍스트';
     return '사진';
   }
 
-  // 보드 소유자 여부 (삭제 버튼 표시 조건)
   const isOwner = !supabase || (user && board && (board as any).owner_id === user.id);
+  const sortedItems = sortByLikes ? [...items].sort((a, b) => (b.likes || 0) - (a.likes || 0)) : items;
 
   return (
     <main className="board-page">
@@ -512,6 +625,9 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
           <div className="brand small">생각보드</div>
           <h1>{board?.title || '생각보드'}</h1>
           <p>참여자는 스마트폰으로 그리고 올립니다. 진행자는 이 화면을 빔프로젝터에 띄우세요.</p>
+          {presenceCount > 0 && (
+            <div className="presence-badge">👥 현재 {presenceCount}명 접속 중</div>
+          )}
         </div>
         <div className={`qr-box ${qrExpanded ? 'qr-box--expanded' : ''}`} onClick={() => setQrExpanded(!qrExpanded)} style={{ cursor: qrExpanded ? 'zoom-out' : 'zoom-in' }} title={qrExpanded ? '클릭하면 작아집니다' : '클릭하면 크게 보입니다'}>
           <QRCodeSVG value={joinUrl} size={qrExpanded ? 220 : 90} />
@@ -519,20 +635,109 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
         </div>
       </header>
 
+      {/* 공지 배너 (진행자 화면) */}
+      {board?.notice && (
+        <div className="notice-banner notice-banner--facilitator">
+          📢 {board.notice}
+        </div>
+      )}
+
       <section className="board-toolbar">
         <a className="soft-btn" href={joinUrl} target="_blank" rel="noopener noreferrer">참여자 화면 열기</a>
         <button className="soft-btn" onClick={() => document.documentElement.requestFullscreen?.()}>전체화면</button>
         <button className="soft-btn" onClick={() => navigator.clipboard.writeText(joinUrl).then(() => show('링크를 복사했습니다.', 'success'))}>참여 링크 복사</button>
         <div className="toolbar-divider" />
-        <button className="soft-btn export-btn" disabled={items.length === 0} onClick={printBoard}>🖨️ 인쇄 / PDF 저장</button>
-        <a className="soft-btn" href="/">← 내 보드 목록</a>
+
+        {/* 잠금 버튼 */}
+        <button
+          className={`soft-btn ${board?.locked ? 'soft-btn--danger' : ''}`}
+          onClick={toggleLock}
+          title={board?.locked ? '클릭하면 접수를 다시 열 수 있습니다' : '클릭하면 새 제출을 차단합니다'}
+        >
+          {board?.locked ? '🔒 접수 마감 중' : '🔓 접수 중'}
+        </button>
+
+        {/* 타이머 버튼 */}
+        <button className="soft-btn" onClick={() => setShowTimer(!showTimer)}>⏱️ 타이머</button>
+
+        {/* 정렬 토글 */}
+        <button
+          className={`soft-btn ${sortByLikes ? 'soft-btn--active' : ''}`}
+          onClick={() => setSortByLikes(!sortByLikes)}
+          title="좋아요 많은 순으로 정렬"
+        >
+          {sortByLikes ? '❤️ 좋아요 순' : '🕐 시간 순'}
+        </button>
+
+        {/* 발표자 추첨 */}
+        {uniqueNames.length > 0 && (
+          <button className="soft-btn" onClick={() => setShowRoulette(true)}>🎲 발표자 추첨</button>
+        )}
+
+        <div className="toolbar-divider" />
+
+        {/* 공지 버튼 */}
+        <button className="soft-btn" onClick={() => setNoticeEditing(!noticeEditing)}>
+          {noticeEditing ? '✕ 닫기' : '📢 공지'}
+        </button>
+
+        <button className="soft-btn export-btn" disabled={items.length === 0} onClick={printBoard}>🖨️ 인쇄 / PDF</button>
+        <a className="soft-btn" href="/">← 목록</a>
       </section>
+
+      {/* 공지 입력 패널 */}
+      {noticeEditing && (
+        <div className="notice-panel">
+          <input
+            className="notice-input"
+            value={noticeInput}
+            onChange={(e) => setNoticeInput(e.target.value)}
+            placeholder="참여자 화면에 표시할 공지를 입력하세요..."
+            onKeyDown={(e) => e.key === 'Enter' && saveNotice()}
+            autoFocus
+          />
+          <button className="primary-btn" style={{ minWidth: 80 }} onClick={saveNotice}>전송</button>
+          {board?.notice && (
+            <button className="soft-btn" onClick={() => { setNoticeInput(''); saveNotice(); }}>공지 삭제</button>
+          )}
+        </div>
+      )}
+
+      {/* 타이머 패널 */}
+      {showTimer && (
+        <div className="timer-panel">
+          {timer.seconds === 0 && !timer.running ? (
+            <div className="timer-setup">
+              <input
+                type="number"
+                className="timer-input"
+                value={timerMinutes}
+                onChange={(e) => setTimerMinutes(e.target.value)}
+                min="1"
+                max="60"
+              />
+              <span>분</span>
+              <button className="primary-btn" onClick={() => timer.start(Number(timerMinutes) || 5)}>시작</button>
+            </div>
+          ) : (
+            <div className="timer-running">
+              <span className={`timer-display ${timer.seconds <= 30 ? 'timer-display--urgent' : ''}`}>
+                {timer.display}
+              </span>
+              <button className="soft-btn" onClick={timer.running ? timer.pause : timer.resume}>
+                {timer.running ? '⏸ 일시정지' : '▶ 계속'}
+              </button>
+              <button className="soft-btn" onClick={timer.reset}>↺ 초기화</button>
+            </div>
+          )}
+        </div>
+      )}
 
       <section className="cork-board">
         {items.length === 0 ? (
           <div className="empty-board">아직 붙은 그림이 없습니다. QR로 접속해서 첫 번째 생각을 붙여보세요.</div>
         ) : (
-          items.map((item) => (
+          sortedItems.map((item) => (
             <article key={item.id} className="photo-note" style={{ transform: `rotate(${item.rotate}deg)` }} onClick={() => setSelected(item)}>
               <div className="tape" />
               <img src={item.image_url} alt={item.caption || '보드 이미지'} loading="lazy" crossOrigin="anonymous" />
@@ -540,6 +745,10 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
                 <strong>{item.uploader_name || '참여자'}</strong>
                 <span>{typeLabel(item.type)}</span>
               </div>
+              {/* 좋아요 카운트 */}
+              {(item.likes || 0) > 0 && (
+                <div className="like-badge">❤️ {item.likes}</div>
+              )}
               {isOwner && (
                 <button className="delete-btn" aria-label="항목 삭제" onClick={(e) => { e.stopPropagation(); removeItem(item.id); }}>×</button>
               )}
@@ -548,7 +757,26 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
         )}
       </section>
 
+      {/* 손든 사람 목록 */}
+      {raisedHands.length > 0 && (
+        <section className="raised-hands-bar">
+          <span className="raised-hands-label">✋ 손든 참여자</span>
+          {raisedHands.map((h) => (
+            <span key={h.id} className="raised-hand-chip">
+              <span className="waving-hand">✋</span> {h.name}
+            </span>
+          ))}
+        </section>
+      )}
+
       {selected && <ImageModal item={selected} onClose={() => setSelected(null)} />}
+      {showRoulette && (
+        <RouletteModal
+          names={uniqueNames}
+          roulette={roulette}
+          onClose={() => setShowRoulette(false)}
+        />
+      )}
       <Toast toast={toast} />
     </main>
   );
@@ -561,8 +789,82 @@ function JoinScreen({ boardId }: { boardId: string }) {
   const [busy, setBusy] = useState(false);
   const [drawOpen, setDrawOpen] = useState(false);
   const [textOpen, setTextOpen] = useState(false);
+  const [board, setBoard] = useState<Board | null>(null);
+  const [items, setItems] = useState<BoardItem[]>([]);
+  const [handRaised, setHandRaised] = useState(false);
+  const [likedItems, setLikedItems] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(`liked-${boardId}`) || '[]')); }
+    catch { return new Set(); }
+  });
   const fileRef = useRef<HTMLInputElement>(null);
   const { toast, show } = useToast();
+  const participantId = useRef(uid()); // 이 세션의 참여자 ID
+  const presenceRef = useRef<any>(null);
+
+  // 보드 정보 + 아이템 로드
+  useEffect(() => {
+    async function load() {
+      if (!supabase) {
+        const b = JSON.parse(localStorage.getItem(`demo-board-${boardId}`) || 'null') || { id: boardId, title: '데모', locked: false };
+        setBoard(b);
+        setItems(JSON.parse(localStorage.getItem(`demo-items-${boardId}`) || '[]'));
+        return;
+      }
+      const [{ data: b }, { data: its }] = await Promise.all([
+        supabase.from('boards').select('*').eq('id', boardId).single(),
+        supabase.from('board_items').select('*').eq('board_id', boardId).order('created_at', { ascending: true }),
+      ]);
+      if (b) setBoard(b as Board);
+      if (its) setItems(its as BoardItem[]);
+    }
+    load();
+  }, [boardId]);
+
+  // Realtime 구독
+  useEffect(() => {
+    if (!supabase) return;
+
+    // Presence: 이 참여자를 등록
+    const presenceChannel = supabase.channel(`presence-${boardId}`, { config: { presence: { key: participantId.current } } });
+    presenceRef.current = presenceChannel;
+    presenceChannel.subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        const storedName = localStorage.getItem('saenggak-name') || '';
+        await presenceChannel.track({ joined_at: new Date().toISOString(), name: storedName, hand_raised: false });
+      }
+    });
+
+    const channel = supabase
+      .channel(`join-${boardId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'board_items', filter: `board_id=eq.${boardId}` }, (payload) => {
+        setItems((prev) => prev.some((it) => it.id === payload.new.id) ? prev : [...prev, payload.new as BoardItem]);
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'board_items', filter: `board_id=eq.${boardId}` }, (payload) => {
+        setItems((prev) => prev.map((it) => it.id === payload.new.id ? { ...it, likes: (payload.new as BoardItem).likes } : it));
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'board_items', filter: `board_id=eq.${boardId}` }, (payload) => {
+        setItems((prev) => prev.filter((it) => it.id !== payload.old.id));
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'boards', filter: `id=eq.${boardId}` }, (payload) => {
+        setBoard((prev) => prev ? { ...prev, ...(payload.new as Board) } : prev);
+      })
+      .subscribe();
+
+    return () => {
+      supabase?.removeChannel(channel);
+      supabase?.removeChannel(presenceChannel);
+    };
+  }, [boardId]);
+
+  async function toggleHandRaise() {
+    const newState = !handRaised;
+    setHandRaised(newState);
+    if (presenceRef.current) {
+      const currentName = name.trim() || localStorage.getItem('saenggak-name') || '이름 없는 참여자';
+      await presenceRef.current.track({ name: currentName, hand_raised: newState, joined_at: new Date().toISOString() });
+    }
+    show(newState ? '손을 들었습니다! 진행자가 확인할 수 있습니다.' : '손을 내렸습니다.', 'success');
+  }
 
   async function saveItem(type: BoardItem['type'], blob: Blob, ext: string) {
     setBusy(true);
@@ -574,6 +876,7 @@ function JoinScreen({ boardId }: { boardId: string }) {
         uploader_name: name.trim() || '이름 없는 참여자',
         caption: caption.trim() || null, rotate: randomRotate(),
         created_at: new Date().toISOString(),
+        likes: 0,
       };
       if (!supabase) {
         const list = JSON.parse(localStorage.getItem(`demo-items-${boardId}`) || '[]');
@@ -591,6 +894,22 @@ function JoinScreen({ boardId }: { boardId: string }) {
     }
   }
 
+  async function toggleLike(item: BoardItem) {
+    const already = likedItems.has(item.id);
+    const newCount = already ? Math.max(0, (item.likes || 0) - 1) : (item.likes || 0) + 1;
+
+    // Optimistic UI
+    setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, likes: newCount } : it));
+    const newLiked = new Set(likedItems);
+    if (already) newLiked.delete(item.id); else newLiked.add(item.id);
+    setLikedItems(newLiked);
+    localStorage.setItem(`liked-${boardId}`, JSON.stringify([...newLiked]));
+
+    if (supabase) {
+      await supabase.from('board_items').update({ likes: newCount }).eq('id', item.id);
+    }
+  }
+
   async function handleFiles(files: FileList | null) {
     if (!files?.[0]) return;
     try { await saveItem('photo', await resizeImage(files[0]), 'jpg'); }
@@ -602,28 +921,126 @@ function JoinScreen({ boardId }: { boardId: string }) {
     await saveItem('text', await textToImageBlob(text, name.trim() || '이름 없는 참여자'), 'png');
   }
 
+  const isLocked = board?.locked;
+
   return (
     <main className="join-page">
       <section className="join-card">
         <div className="brand">생각보드 참여</div>
-        <h1>사진이나 낙서를 보드에 붙이세요.</h1>
-        {!isSupabaseReady && <div className="warning">데모 모드입니다. 같은 브라우저 안에서만 확인됩니다.</div>}
-        <label className="field-label" htmlFor="join-name">이름</label>
-        <input id="join-name" className="title-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="이름 또는 별명" />
-        <label className="field-label" htmlFor="join-caption">짧은 설명</label>
-        <input id="join-caption" className="title-input" value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="선택 사항" />
-        <div className="join-actions">
-          <button className="primary-btn" disabled={busy} onClick={() => fileRef.current?.click()}>사진 올리기</button>
-          <button className="secondary-btn" disabled={busy} onClick={() => setDrawOpen(true)}>낙서 올리기</button>
-          <button className="secondary-btn" disabled={busy} onClick={() => setTextOpen(true)}>텍스트 올리기</button>
-        </div>
-        <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => handleFiles(e.target.files)} />
-        <p className="hint">스마트폰에서는 손가락으로 바로 그릴 수 있습니다.</p>
+
+        {/* 공지 배너 */}
+        {board?.notice && (
+          <div className="notice-banner">
+            📢 {board.notice}
+          </div>
+        )}
+
+        {isLocked ? (
+          <div className="locked-state">
+            <div className="locked-icon">🔒</div>
+            <h2>현재 접수가 마감되었습니다</h2>
+            <p>진행자가 보드를 닫았습니다. 잠시 후 다시 시도해 보세요.</p>
+          </div>
+        ) : (
+          <>
+            <h1>사진이나 낙서를 보드에 붙이세요.</h1>
+            {!isSupabaseReady && <div className="warning">데모 모드입니다. 같은 브라우저 안에서만 확인됩니다.</div>}
+            <label className="field-label" htmlFor="join-name">이름</label>
+            <input id="join-name" className="title-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="이름 또는 별명" />
+            <label className="field-label" htmlFor="join-caption">짧은 설명</label>
+            <input id="join-caption" className="title-input" value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="선택 사항" />
+            <div className="join-actions">
+              <button className="primary-btn" disabled={busy} onClick={() => fileRef.current?.click()}>사진 올리기</button>
+              <button className="secondary-btn" disabled={busy} onClick={() => setDrawOpen(true)}>낙서 올리기</button>
+              <button className="secondary-btn" disabled={busy} onClick={() => setTextOpen(true)}>텍스트 올리기</button>
+            </div>
+            <div style={{ textAlign: 'center', marginTop: 12 }}>
+              <button
+                className={`hand-raise-btn ${handRaised ? 'hand-raise-btn--active' : ''}`}
+                onClick={toggleHandRaise}
+              >
+                <span className={handRaised ? 'waving-hand' : ''}>✋</span>
+                {handRaised ? ' 손 내리기' : ' 손 들기'}
+              </button>
+              {handRaised && <p className="hint" style={{ color: '#c89f62' }}>진행자에게 표시됩니다!</p>}
+            </div>
+            <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => handleFiles(e.target.files)} />
+            <p className="hint">스마트폰에서는 손가락으로 바로 그릴 수 있습니다.</p>
+          </>
+        )}
       </section>
+
+      {/* 보드 현황 — 올려진 아이템 + 좋아요 */}
+      {items.length > 0 && (
+        <section className="join-gallery-section">
+          <div className="join-gallery-title">보드 현황 <span>{items.length}개</span></div>
+          <div className="join-gallery">
+            {[...items].reverse().map((item) => (
+              <div key={item.id} className="join-thumb">
+                <img src={item.image_url} alt={item.uploader_name || ''} loading="lazy" />
+                <div className="join-thumb-footer">
+                  <span className="join-thumb-name">{item.uploader_name || '참여자'}</span>
+                  <button
+                    className={`like-btn ${likedItems.has(item.id) ? 'like-btn--active' : ''}`}
+                    onClick={() => toggleLike(item)}
+                    aria-label="좋아요"
+                  >
+                    {likedItems.has(item.id) ? '❤️' : '🤍'} {item.likes || 0}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <Toast toast={toast} />
       {drawOpen && <DrawingModal onClose={() => setDrawOpen(false)} onSave={(dataUrl) => saveItem('drawing', dataUrlToBlob(dataUrl), 'png')} />}
       {textOpen && <TextModal onClose={() => setTextOpen(false)} onSave={handleTextSave} busy={busy} />}
     </main>
+  );
+}
+
+// ── RouletteModal ─────────────────────────────────────────
+function RouletteModal({ names, roulette, onClose }: {
+  names: string[];
+  roulette: ReturnType<typeof useRoulette>;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return (
+    <div className="draw-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <section className="draw-panel roulette-panel">
+        <h2>🎲 발표자 추첨</h2>
+        <div className={`roulette-display ${roulette.spinning ? 'roulette-spinning' : ''} ${roulette.result ? 'roulette-done' : ''}`}>
+          {roulette.result ? (
+            <>
+              <div className="roulette-result">{roulette.result}</div>
+              <div className="roulette-congrats">🎉 발표자로 선정되었습니다!</div>
+            </>
+          ) : roulette.spinning ? (
+            <div className="roulette-current">{roulette.current}</div>
+          ) : (
+            <div className="roulette-idle">{names.length}명 중 한 명을 추첨합니다</div>
+          )}
+        </div>
+        <div className="draw-actions">
+          <button className="secondary-btn" onClick={onClose}>닫기</button>
+          <button
+            className="primary-btn"
+            onClick={roulette.spin}
+            disabled={roulette.spinning}
+          >
+            {roulette.spinning ? '추첨 중...' : roulette.result ? '다시 추첨' : '추첨 시작!'}
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -742,7 +1159,11 @@ function ImageModal({ item, onClose }: { item: BoardItem; onClose: () => void })
     <div className="image-modal" onClick={onClose}>
       <div className="image-stage">
         <img src={item.image_url} alt={item.caption || '확대 이미지'} />
-        <p><strong>{item.uploader_name || '참여자'}</strong>{item.caption ? ` · ${item.caption}` : ''}</p>
+        <p>
+          <strong>{item.uploader_name || '참여자'}</strong>
+          {item.caption ? ` · ${item.caption}` : ''}
+          {(item.likes || 0) > 0 && <span style={{ marginLeft: 12 }}>❤️ {item.likes}</span>}
+        </p>
         <span>다시 클릭하면 보드로 돌아갑니다.</span>
       </div>
     </div>

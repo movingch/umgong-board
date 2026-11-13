@@ -415,6 +415,102 @@ button:disabled { opacity: .55; cursor: wait; }
 @keyframes popIn { from { opacity: 0; transform: scale(.88) rotate(0deg); } to { opacity: 1; } }
 @keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(12px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 
+/* 손들기 애니메이션 */
+@keyframes waveHand {
+  0%, 100% { transform: rotate(0deg); transform-origin: 70% 70%; }
+  10% { transform: rotate(14deg); }
+  20% { transform: rotate(-8deg); }
+  30% { transform: rotate(14deg); }
+  40% { transform: rotate(-4deg); }
+  50% { transform: rotate(10deg); }
+  60% { transform: rotate(0deg); }
+}
+.waving-hand { display: inline-block; animation: waveHand 1.5s ease-in-out infinite; }
+
+/* 손든 사람 바 */
+.raised-hands-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 24px;
+  background: rgba(200,159,98,.18);
+  border-bottom: 2px solid var(--cork);
+}
+.raised-hands-label { font-weight: 900; color: var(--cork-dark); font-size: 14px; }
+.raised-hand-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: white;
+  border: 2px solid var(--cork);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  animation: popIn .25s ease both;
+}
+
+/* 손들기 버튼 */
+.hand-raise-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 28px;
+  border-radius: 999px;
+  border: 2.5px solid var(--line);
+  background: white;
+  font-size: 17px;
+  font-weight: 900;
+  color: var(--muted);
+  transition: all .18s;
+}
+.hand-raise-btn:hover { border-color: var(--cork); color: var(--cork-dark); }
+.hand-raise-btn--active {
+  background: var(--cork);
+  border-color: var(--cork-dark);
+  color: white;
+  box-shadow: 0 4px 16px rgba(200,159,98,.4);
+}
+
+/* 발표자 추첨 모달 */
+.roulette-panel { max-width: 480px; text-align: center; }
+.roulette-display {
+  margin: 24px 0;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 20px;
+  background: var(--paper);
+  border: 2.5px solid var(--line);
+  padding: 24px;
+}
+.roulette-idle { font-size: 18px; color: var(--muted); }
+.roulette-current {
+  font-size: 36px;
+  font-weight: 900;
+  color: var(--ink);
+  animation: rouletteTick .08s linear;
+}
+@keyframes rouletteTick { 0% { opacity: .4; transform: scale(.92); } 100% { opacity: 1; transform: scale(1); } }
+.roulette-spinning .roulette-current { color: var(--cork-dark); }
+.roulette-result {
+  font-size: 44px;
+  font-weight: 900;
+  color: var(--cork-dark);
+  animation: popIn .3s cubic-bezier(.34,1.56,.64,1) both;
+}
+.roulette-congrats {
+  margin-top: 10px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--muted);
+  animation: toastIn .3s .15s ease both;
+}
+
 @media (max-width: 760px) {
   .board-header { flex-direction: column; padding: 20px; }
   .qr-box { width: 100%; }
