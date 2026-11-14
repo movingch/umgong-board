@@ -119,6 +119,7 @@ export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose }: {
   const [winner, setWinner] = useState('');
   const [mode, setMode] = useState<Mode>('first');
   const [round, setRound] = useState(0);
+  const [ranking, setRanking] = useState<{ name: string; hue: number; done: boolean }[]>([]);
   const ctl = useRef<{ phase: Phase; mode: Mode }>({ phase: 'ready', mode: 'first' });
   const timers = useRef<number[]>([]);
   ctl.current.mode = mode;
@@ -174,6 +175,7 @@ export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose }: {
     let hitPeg = 0;
     let hitBumper = false;
     let decideTimer = 0;
+    let lastRank = 0;
 
     const decide = (m: Marble) => {
       if (decided) return;
@@ -436,27 +438,6 @@ export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose }: {
         g.fillStyle = `hsl(${m.hue} 88% 60%)`;
         g.fillRect(mmX - 4, mmTop + Math.min(1, m.y / GOAL_Y) * mmH - 1.5, 8, 3);
       }
-
-      // 순위표
-      const rows = cw < 520 ? 5 : 8;
-      const ranked = [...active].sort((a, b) => b.y - a.y).slice(0, rows);
-      const px = 14, py = 70, lh = cw < 520 ? 20 : 24;
-      g.fillStyle = 'rgba(10,6,24,.62)';
-      g.beginPath();
-      g.roundRect(px - 6, py - 26, cw < 520 ? 138 : 176, lh * (ranked.length + 1) + 14, 14);
-      g.fill();
-      g.textAlign = 'left';
-      g.font = `800 ${cw < 520 ? 12 : 14}px system-ui, sans-serif`;
-      g.fillStyle = '#ffd24a';
-      g.fillText(`남은 구슬 ${active.length}/${total}`, px + 4, py - 6);
-      ranked.forEach((m, i) => {
-        const y = py + lh * (i + 1) - 6;
-        g.fillStyle = `hsl(${m.hue} 88% 60%)`;
-        g.beginPath(); g.arc(px + 10, y - 5, 5, 0, Math.PI * 2); g.fill();
-        g.fillStyle = i === 0 ? '#ffe27a' : '#fff';
-        const text = `${i + 1}. ${m.name}`;
-        g.fillText(text.length > 13 ? `${text.slice(0, 12)}…` : text, px + 22, y);
-      });
     };
 
     const frame = (now: number) => {
@@ -522,6 +503,15 @@ export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose }: {
         camY += (targetY - camY) * Math.min(1, dt * 5);
         draw(cw, ch, s, focus ? focus.x : W / 2, active, racing ? leader : undefined);
       }
+      // 순위표: 도착한 구슬은 도착 순서대로 위에 남고, 나머지는 현재 위치 순
+      if (now - lastRank > 250) {
+        lastRank = now;
+        setRanking(
+          [...marbles]
+            .sort((a, b) => (a.rank || 1e9) - (b.rank || 1e9) || b.y - a.y)
+            .map((m) => ({ name: m.name, hue: m.hue, done: m.rank > 0 })),
+        );
+      }
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
@@ -535,6 +525,17 @@ export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose }: {
         <span className="pinball-title">{title} · {pool.length}명</span>
         <button className="raffle-btn pinball-close" onClick={onClose}>닫기</button>
       </div>
+
+      <ol className="pinball-rank" aria-label="순위">
+        <li className="pinball-rank-head">순위 · 도착 {ranking.filter((r) => r.done).length}/{pool.length}</li>
+        {ranking.map((r, i) => (
+          <li key={`${r.name}-${r.hue}`} className={`${r.done ? 'is-done' : ''}${phase === 'done' && r.name === winner ? ' is-winner' : ''}`}>
+            <span className="pinball-rank-dot" style={{ background: `hsl(${r.hue} 88% 60%)` }} />
+            <span className="pinball-rank-name">{i + 1}. {r.name}</span>
+            {r.done && <span aria-label="도착">🏁</span>}
+          </li>
+        ))}
+      </ol>
 
       {phase === 'countdown' && count > 0 && (
         <div className="countdown-overlay countdown-overlay--paused" aria-hidden="true">

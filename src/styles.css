@@ -958,7 +958,7 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
 .pinball-stage { position: fixed; inset: 0; z-index: 1200; background: #0b0718; color: white; overflow: hidden; animation: fadeIn .25s ease both; }
 .pinball-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .pinball-top {
-  position: absolute; top: 0; left: 0; right: 0;
+  position: absolute; top: 0; left: 0; right: 0; z-index: 1320;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 12px 16px;
   background: linear-gradient(180deg, rgba(8,4,20,.85), rgba(8,4,20,0));
@@ -979,6 +979,25 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
   gap: clamp(10px, 2vh, 24px); padding: 24px;
   background: radial-gradient(ellipse at center, rgba(10,5,24,.86) 0%, rgba(10,5,24,.6) 100%);
   animation: fadeIn .3s ease both;
+}
+.pinball-rank {
+  position: absolute; left: 12px; top: 64px; bottom: 104px; z-index: 1315;
+  width: 196px; margin: 0; padding: 10px 8px; list-style: none;
+  overflow-y: auto; overscroll-behavior: contain;
+  border-radius: 16px;
+  background: rgba(10,6,24,.72);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  font-size: 14px; font-weight: 800; color: #fff;
+  scrollbar-width: thin;
+}
+.pinball-rank li { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 8px; }
+.pinball-rank-head { color: #ffd24a; position: sticky; top: -10px; background: rgba(10,6,24,.95); margin: -10px -8px 4px; padding: 10px 14px 6px !important; border-radius: 0 !important; }
+.pinball-rank-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.pinball-rank-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pinball-rank li.is-done { color: rgba(255,255,255,.7); }
+.pinball-rank li.is-winner { background: rgba(255,210,74,.25); color: #ffe27a; }
+@media (max-width: 760px) {
+  .pinball-rank { width: 132px; font-size: 12px; bottom: auto; max-height: 38vh; }
 }
 .pinball-winner { font-size: clamp(2.6rem, 10vw, 8rem); min-width: min(64vw, 460px); }
 

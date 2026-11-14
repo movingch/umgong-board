@@ -36,20 +36,17 @@ function tone(freq: number, { at = 0, dur = 0.15, type = 'sine', gain = 0.18, to
 }
 
 const buffers: Record<string, AudioBuffer> = {};
-const loading = new Set<string>();
+const loads: Record<string, Promise<void>> = {};
 
-async function load(name: string) {
+function load(name: string): Promise<void> {
   const c = getCtx();
-  if (!c || buffers[name] || loading.has(name)) return;
-  loading.add(name);
-  try {
-    const res = await fetch(`/sfx/${name}.mp3`);
-    buffers[name] = await c.decodeAudioData(await res.arrayBuffer());
-  } catch {
-    // 음원을 못 받으면 합성음으로 대체된다
-  } finally {
-    loading.delete(name);
-  }
+  if (!c || buffers[name]) return Promise.resolve();
+  loads[name] ??= fetch(`/sfx/${name}.mp3`)
+    .then((res) => res.arrayBuffer())
+    .then((data) => c.decodeAudioData(data))
+    .then((buf) => { buffers[name] = buf; })
+    .catch(() => { delete loads[name]; });
+  return loads[name];
 }
 
 function play(name: string, at = 0, gain = 1) {
@@ -67,10 +64,51 @@ function play(name: string, at = 0, gain = 1) {
 
 function preload() { void load('bravo'); void load('cheer'); }
 
+let noiseBuf: AudioBuffer | null = null;
+function getNoise(c: AudioContext) {
+  if (!noiseBuf) {
+    noiseBuf = c.createBuffer(1, c.sampleRate, c.sampleRate);
+    const data = noiseBuf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  }
+  return noiseBuf;
+}
+
+// 합성 군중 함성 — 녹음 음원이 없어도 "와~"가 반드시 들리게 깔아 준다
+function crowd(level = 1) {
+  const c = getCtx();
+  if (!c) return;
+  const t = c.currentTime;
+  ([[700, 0.5], [1400, 0.45], [2500, 0.28]] as const).forEach(([freq, peak], i) => {
+    const src = c.createBufferSource();
+    src.buffer = getNoise(c);
+    src.loop = true;
+    const f = c.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.setValueAtTime(freq * 0.8, t);
+    f.frequency.linearRampToValueAtTime(freq * 1.15, t + 0.6);
+    f.Q.value = 0.9;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak * level, t + 0.3 + i * 0.05);
+    g.gain.setValueAtTime(peak * level, t + 1.8);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 3.4);
+    const lfo = c.createOscillator();
+    const lfoGain = c.createGain();
+    lfo.frequency.value = 6 + i * 2.3;
+    lfoGain.gain.value = peak * level * 0.35;
+    lfo.connect(lfoGain).connect(g.gain);
+    src.connect(f).connect(g).connect(c.destination);
+    src.start(t, Math.random());
+    lfo.start(t);
+    src.stop(t + 3.5);
+    lfo.stop(t + 3.5);
+  });
+}
+
 // ── 디스코 비트 (핀볼 배경 음악) ──────────────────────────
 let discoTimer = 0;
 let discoBus: GainNode | null = null;
-let noiseBuf: AudioBuffer | null = null;
 
 function stopDisco() {
   clearInterval(discoTimer);
@@ -95,12 +133,6 @@ function startDisco() {
   bus.connect(comp).connect(c.destination);
   discoBus = bus;
 
-  if (!noiseBuf) {
-    noiseBuf = c.createBuffer(1, c.sampleRate, c.sampleRate);
-    const data = noiseBuf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-  }
-
   const env = (g: GainNode, t: number, peak: number, dur: number) => {
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(peak, t + 0.005);
@@ -108,7 +140,7 @@ function startDisco() {
   };
   const noise = (t: number, type: BiquadFilterType, freq: number, peak: number, dur: number) => {
     const src = c.createBufferSource();
-    src.buffer = noiseBuf;
+    src.buffer = getNoise(c);
     const f = c.createBiquadFilter();
     f.type = type;
     f.frequency.value = freq;
@@ -206,12 +238,16 @@ export const sfx = {
   tick(progress: number) {
     tone(520 + progress * 560, { dur: 0.055, type: 'triangle', gain: 0.16 });
   },
-  // 팡파르 + 거친 "부라보!" 외침 + "와~" 함성
+  // 팡파르 + 거친 "부라보!" 외침 + "와~" 함성을 같은 순간에 시작한다
   bravo() {
-    [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, { at: i * 0.11, dur: 0.2, type: 'triangle', gain: 0.16 }));
-    [1046.5, 1318.5, 1568].forEach((f) => tone(f, { at: 0.5, dur: 1.3, type: 'triangle', gain: 0.1 }));
-    if (!play('bravo', 0.05, 1)) sfx.say('부라보');
-    play('cheer', 0.2, 0.9);
+    [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, { at: i * 0.11, dur: 0.2, type: 'triangle', gain: 0.14 }));
+    [1046.5, 1318.5, 1568].forEach((f) => tone(f, { at: 0.5, dur: 1.3, type: 'triangle', gain: 0.08 }));
+    if (!play('bravo', 0, 1.1)) {
+      if (getCtx()) void load('bravo').then(() => { if (!play('bravo', 0, 1.1)) sfx.say('부라보'); });
+      else sfx.say('부라보');
+    }
+    if (!play('cheer', 0, 1.4)) void load('cheer').then(() => play('cheer', 0, 1.4));
+    crowd(0.7);
   },
   pop() {
     tone(420, { to: 900, dur: 0.14, gain: 0.14 });
