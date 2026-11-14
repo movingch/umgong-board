@@ -371,6 +371,15 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
 .header-menu--view { grid-template-columns: auto; }
 .soft-btn--cheer { background: linear-gradient(180deg, #ffd24a, #f0a01c); border-color: #ffe08a; color: #3a2204; }
 .soft-btn--cheer:disabled { opacity: .55; }
+.online-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 10px 14px; border-radius: var(--r-sm);
+  background: rgba(255,255,255,.55); border: 1px solid rgba(255,255,255,.7);
+  font-size: 14px; font-weight: 900; color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+.online-dot { width: 9px; height: 9px; border-radius: 50%; background: #2fd36b; box-shadow: 0 0 0 0 rgba(47,211,107,.6); animation: onlinePulse 1.8s ease-out infinite; }
+@keyframes onlinePulse { 70% { box-shadow: 0 0 0 8px rgba(47,211,107,0); } 100% { box-shadow: 0 0 0 0 rgba(47,211,107,0); } }
 
 /* 접속자 뱃지 */
 .presence-badge {
@@ -1624,7 +1633,7 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
   @keyframes modalIn { from { opacity: 0; } to { opacity: 1; } }
   .raffle-spot, .countdown-overlay, .hand-name-emoji, .raffle-bravo, .raffle-card--winner { animation: none !important; }
   .pinball-banner { animation: fadeIn .2s ease both; }
-  .poke-overlay, .poke-bell, .emoji-burst { animation: none !important; }
+  .poke-overlay, .poke-bell, .emoji-burst, .online-dot { animation: none !important; }
   .raffle-card--tick, .photo-note--new { animation: fadeIn .15s ease both; }
   .countdown-number { animation-name: reducedShow; }
   .ddaeng-overlay span, .hand-float, .hand-float-inner { animation: none !important; }

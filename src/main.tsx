@@ -43,6 +43,15 @@ function removeFromLocalHistory(id: string) {
 // ── 유틸 ─────────────────────────────────────────────────
 function uid() { return crypto.randomUUID(); }
 
+// 이 브라우저를 구분하는 값 — 같은 기기에서 탭을 여러 개 열어도 1명으로 센다
+function deviceId() {
+  try {
+    let id = localStorage.getItem('device-id');
+    if (!id) { id = crypto.randomUUID(); localStorage.setItem('device-id', id); }
+    return id;
+  } catch { return crypto.randomUUID(); }
+}
+
 function getPathParts() {
   const parts = window.location.pathname.split('/').filter(Boolean);
   return { mode: parts[0] || 'home', boardId: parts[1] || '' };
@@ -648,6 +657,7 @@ function BoardScreen({ boardId, user, readOnly = false }: { boardId: string; use
   const prevReacts = useRef<Map<string, Record<string, number>> | null>(null);
   const burstSeq = useRef(0);
   const [cheerCooling, setCheerCooling] = useState(false);
+  const [online, setOnline] = useState<number | null>(null);
   const [pinball, setPinball] = useState<{ names: string[]; title: string; fromHands: boolean } | null>(null);
   const [showRoulette, setShowRoulette] = useState(false);
   const [noticeInput, setNoticeInput] = useState('');
@@ -820,6 +830,18 @@ function BoardScreen({ boardId, user, readOnly = false }: { boardId: string; use
       .subscribe();
     channelRef.current = channel;
 
+    // 접속자 수: 참여자 화면이 남긴 '접속 중' 표시를 센다 (보기 전용 화면은 세지 않는다)
+    const presence = supabase.channel(`presence-${boardId}`, { config: { presence: { key: `host-${uid()}` } } });
+    const countOnline = () => {
+      const state = presence.presenceState() as Record<string, { role?: string }[]>;
+      setOnline(Object.values(state).filter((metas) => metas.some((m) => m.role === 'participant')).length);
+    };
+    presence
+      .on('presence', { event: 'sync' }, countOnline)
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') { void presence.track({ role: 'host' }); countOnline(); }
+      });
+
     // 3초 폴링: Realtime 지연·단절 보완
     const pollTimer = window.setInterval(syncAll, 3000);
 
@@ -827,6 +849,7 @@ function BoardScreen({ boardId, user, readOnly = false }: { boardId: string; use
       window.clearInterval(pollTimer);
       channelRef.current = null;
       supabase?.removeChannel(channel);
+      supabase?.removeChannel(presence);
     };
   }, [boardId]);
 
@@ -1020,6 +1043,11 @@ function BoardScreen({ boardId, user, readOnly = false }: { boardId: string; use
         <button className="soft-btn soft-btn--cheer" onClick={cheerAll} disabled={cheerCooling} title="접속한 참여자 전원의 화면에 응원을 보냅니다">
           💪 전체 응원
         </button>
+        {online !== null && (
+          <span className="online-chip" title="지금 참여자 화면을 열어 둔 사람 수" aria-live="polite">
+            <i className="online-dot" />접속 {online}명
+          </span>
+        )}
       </section>
       )}
 
@@ -1373,6 +1401,12 @@ function JoinScreen({ boardId }: { boardId: string }) {
       })
       .subscribe();
 
+    // 접속 표시: 이 화면을 열어 두는 동안 진행자 화면의 접속자 수에 잡힌다 (기기당 1명)
+    const presence = supabase.channel(`presence-${boardId}`, { config: { presence: { key: `p-${deviceId()}` } } });
+    presence.subscribe((status) => {
+      if (status === 'SUBSCRIBED') void presence.track({ role: 'participant' });
+    });
+
     const pollTimer = window.setInterval(() => { if (!document.hidden) syncAll(); }, 2000);
     const onVisible = () => { if (!document.hidden) syncAll(); };
     document.addEventListener('visibilitychange', onVisible);
@@ -1384,6 +1418,7 @@ function JoinScreen({ boardId }: { boardId: string }) {
       broadcastRef.current = null;
       supabase?.removeChannel(channel);
       supabase?.removeChannel(broadcastChannel);
+      supabase?.removeChannel(presence);
     };
   }, [boardId]);
 
