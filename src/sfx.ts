@@ -62,7 +62,7 @@ function play(name: string, at = 0, gain = 1) {
   return true;
 }
 
-function preload() { void load('bravo'); void load('cheer'); }
+function preload() { void load('bravo'); void load('kids-cheer'); void load('kids-wow'); }
 
 let noiseBuf: AudioBuffer | null = null;
 function getNoise(c: AudioContext) {
@@ -72,38 +72,6 @@ function getNoise(c: AudioContext) {
     for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
   }
   return noiseBuf;
-}
-
-// 합성 군중 함성 — 녹음 음원이 없어도 "와~"가 반드시 들리게 깔아 준다
-function crowd(level = 1) {
-  const c = getCtx();
-  if (!c) return;
-  const t = c.currentTime;
-  ([[700, 0.5], [1400, 0.45], [2500, 0.28]] as const).forEach(([freq, peak], i) => {
-    const src = c.createBufferSource();
-    src.buffer = getNoise(c);
-    src.loop = true;
-    const f = c.createBiquadFilter();
-    f.type = 'bandpass';
-    f.frequency.setValueAtTime(freq * 0.8, t);
-    f.frequency.linearRampToValueAtTime(freq * 1.15, t + 0.6);
-    f.Q.value = 0.9;
-    const g = c.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(peak * level, t + 0.3 + i * 0.05);
-    g.gain.setValueAtTime(peak * level, t + 1.8);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 3.4);
-    const lfo = c.createOscillator();
-    const lfoGain = c.createGain();
-    lfo.frequency.value = 6 + i * 2.3;
-    lfoGain.gain.value = peak * level * 0.35;
-    lfo.connect(lfoGain).connect(g.gain);
-    src.connect(f).connect(g).connect(c.destination);
-    src.start(t, Math.random());
-    lfo.start(t);
-    src.stop(t + 3.5);
-    lfo.stop(t + 3.5);
-  });
 }
 
 function noiseHit(type: BiquadFilterType, freq: number, peak: number, dur: number, toFreq?: number) {
@@ -259,7 +227,7 @@ export const sfx = {
   tick(progress: number) {
     tone(520 + progress * 560, { dur: 0.055, type: 'triangle', gain: 0.16 });
   },
-  // 팡파르 + 거친 "부라보!" 외침 + "와~" 함성을 같은 순간에 시작한다
+  // 팡파르 + 거친 "부라보!" 외침 + 아이들의 "와우~" 함성을 같은 순간에 시작한다
   bravo() {
     [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, { at: i * 0.11, dur: 0.2, type: 'triangle', gain: 0.14 }));
     [1046.5, 1318.5, 1568].forEach((f) => tone(f, { at: 0.5, dur: 1.3, type: 'triangle', gain: 0.08 }));
@@ -267,8 +235,7 @@ export const sfx = {
       if (getCtx()) void load('bravo').then(() => { if (!play('bravo', 0, 1.1)) sfx.say('부라보'); });
       else sfx.say('부라보');
     }
-    if (!play('cheer', 0, 1.4)) void load('cheer').then(() => play('cheer', 0, 1.4));
-    crowd(0.7);
+    if (!play('kids-cheer', 0, 1.3)) void load('kids-cheer').then(() => play('kids-cheer', 0, 1.3));
   },
   pop() {
     tone(420, { to: 900, dur: 0.14, gain: 0.14 });
@@ -279,7 +246,7 @@ export const sfx = {
   // 핀볼 이벤트 효과음
   lead() {
     [659.25, 880, 1318.5].forEach((f, i) => tone(f, { at: i * 0.07, dur: 0.16, type: 'square', gain: 0.09 }));
-    crowd(0.22);
+    play('kids-wow', 0, 0.7);
   },
   thunder() {
     noiseHit('highpass', 3000, 0.7, 0.18);
