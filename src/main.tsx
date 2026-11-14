@@ -4,6 +4,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { supabase, isSupabaseReady } from './lib/supabase';
 import type { User } from '@supabase/supabase-js';
 import type { Board, BoardItem } from './types';
+import { sfx } from './sfx';
 import './styles.css';
 
 const BUCKET = 'board-images';
@@ -166,60 +167,100 @@ function Toast({ toast }: { toast: { msg: string; type: 'success' | 'error' } | 
 
 // ── 발표자 추첨 훅 ────────────────────────────────────────
 function useRoulette(names: string[]) {
-  const [spinning, setSpinning] = useState(false);
+  const [phase, setPhase] = useState<'idle' | 'spinning' | 'done'>('idle');
   const [current, setCurrent] = useState('');
-  const [result, setResult] = useState('');
-  const intervalRef = useRef<number>(0);
+  const [step, setStep] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const timerRef = useRef<number>(0);
+  const namesRef = useRef(names);
+  namesRef.current = names;
 
-  function spin() {
-    if (names.length === 0) return;
-    setResult('');
-    setSpinning(true);
-    let count = 0;
-    const total = 24 + Math.floor(Math.random() * 12);
-    clearInterval(intervalRef.current);
-    intervalRef.current = window.setInterval(() => {
-      setCurrent(names[Math.floor(Math.random() * names.length)]);
-      count++;
-      if (count >= total) {
-        clearInterval(intervalRef.current);
-        const winner = names[Math.floor(Math.random() * names.length)];
-        setCurrent(winner);
-        setResult(winner);
-        setSpinning(false);
-      }
-    }, count < total * 0.5 ? 60 : count < total * 0.8 ? 120 : 200);
+  function reset() {
+    clearTimeout(timerRef.current);
+    setPhase('idle');
+    setCurrent('');
+    setProgress(0);
   }
 
-  useEffect(() => () => clearInterval(intervalRef.current), []);
-  return { spinning, current, result, spin };
+  function spin() {
+    const pool = namesRef.current;
+    if (pool.length === 0) return;
+    clearTimeout(timerRef.current);
+    const rand = () => pool[Math.floor(Math.random() * pool.length)];
+    const winner = rand();
+    const total = 34 + Math.floor(Math.random() * 8);
+    let i = 0;
+    let last = '';
+    setPhase('spinning');
+
+    const next = () => {
+      i++;
+      const p = i / total;
+      let pick = winner;
+      if (i < total && pool.length > 1) {
+        // 마지막 직전에는 당첨자가 아닌 이름을 보여줘 최종 공개가 눈에 보이게 한다
+        const avoid = i === total - 1 ? winner : last;
+        do { pick = rand(); } while (pick === avoid);
+      }
+      last = pick;
+      setCurrent(pick);
+      setStep(i);
+      setProgress(p);
+      sfx.tick(p);
+      if (i >= total) {
+        timerRef.current = window.setTimeout(() => {
+          setPhase('done');
+          sfx.bravo();
+          sfx.say('부라보');
+        }, 700);
+        return;
+      }
+      timerRef.current = window.setTimeout(next, 50 + 420 * p * p * p);
+    };
+    next();
+  }
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+  return { phase, current, step, progress, spin, reset };
 }
 
 // ── 타이머 훅 ─────────────────────────────────────────────
-function useTimer() {
+function useTimer(onTick: (left: number) => void, onDone: () => void) {
   const [seconds, setSeconds] = useState(0);
   const [running, setRunning] = useState(false);
-  const intervalRef = useRef<number>(0);
+  const endRef = useRef(0);
+  const lastRef = useRef(0);
+  const cbRef = useRef({ onTick, onDone });
+  cbRef.current = { onTick, onDone };
 
   useEffect(() => {
-    if (running && seconds > 0) {
-      intervalRef.current = window.setInterval(() => {
-        setSeconds((s) => {
-          if (s <= 1) { setRunning(false); return 0; }
-          return s - 1;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(intervalRef.current);
-  }, [running, seconds]);
+    if (!running) return;
+    // 종료 시각 기준으로 계산해 탭이 느려져도 시간이 밀리지 않는다
+    const id = window.setInterval(() => {
+      const left = Math.max(0, Math.ceil((endRef.current - Date.now()) / 1000));
+      if (left === lastRef.current) return;
+      lastRef.current = left;
+      setSeconds(left);
+      if (left === 0) { setRunning(false); cbRef.current.onDone(); }
+      else cbRef.current.onTick(left);
+    }, 100);
+    return () => clearInterval(id);
+  }, [running]);
 
-  function start(mins: number) {
-    setSeconds(mins * 60);
+  function start(total: number) {
+    endRef.current = Date.now() + total * 1000;
+    lastRef.current = total;
+    setSeconds(total);
     setRunning(true);
+    cbRef.current.onTick(total);
   }
   function pause() { setRunning(false); }
-  function resume() { if (seconds > 0) setRunning(true); }
-  function reset() { setRunning(false); setSeconds(0); }
+  function resume() {
+    if (seconds <= 0) return;
+    endRef.current = Date.now() + seconds * 1000;
+    setRunning(true);
+  }
+  function reset() { setRunning(false); setSeconds(0); lastRef.current = 0; }
 
   const mm = String(Math.floor(seconds / 60)).padStart(2, '0');
   const ss = String(seconds % 60).padStart(2, '0');
@@ -505,9 +546,23 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
   const [showRoulette, setShowRoulette] = useState(false);
   const [noticeInput, setNoticeInput] = useState('');
   const [noticeEditing, setNoticeEditing] = useState(false);
-  const [timerMinutes, setTimerMinutes] = useState('5');
+  const [timerMin, setTimerMin] = useState('1');
+  const [timerSec, setTimerSec] = useState('0');
   const [showTimer, setShowTimer] = useState(false);
-  const timer = useTimer();
+  const [ddaeng, setDdaeng] = useState(0);
+  const [muted, setMuted] = useState(sfx.isMuted());
+  const [loaded, setLoaded] = useState(false);
+  const [freshIds, setFreshIds] = useState<Set<string>>(new Set());
+  const knownIds = useRef<Set<string> | null>(null);
+  const channelRef = useRef<any>(null);
+  const timer = useTimer(
+    (left) => { if (left <= 10) sfx.beep(left <= 3); },
+    () => {
+      sfx.ding();
+      setDdaeng(Date.now());
+      window.setTimeout(() => setDdaeng(0), 2800);
+    },
+  );
   const uniqueNames = [...new Set(items.map((it) => it.uploader_name).filter(Boolean) as string[])];
   const roulette = useRoulette(uniqueNames);
   const { toast, show } = useToast();
@@ -522,6 +577,7 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
         setNoticeInput(b.notice || '');
         saveToLocalHistory(boardId, b.title);
         setItems(JSON.parse(localStorage.getItem(`demo-items-${boardId}`) || '[]'));
+        setLoaded(true);
         return;
       }
       const [{ data: b }, { data: loadedItems, error }] = await Promise.all([
@@ -530,9 +586,30 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
       ]);
       if (b) { setBoard(b as Board); setNoticeInput((b as any).notice || ''); }
       if (!error && loadedItems) setItems(loadedItems as BoardItem[]);
+      setLoaded(true);
     }
     load();
   }, [boardId]);
+
+  // 새로 붙은 카드 강조 (처음 불러온 카드는 제외)
+  useEffect(() => {
+    if (!loaded) return;
+    if (!knownIds.current) { knownIds.current = new Set(items.map((it) => it.id)); return; }
+    const added = items.filter((it) => !knownIds.current!.has(it.id)).map((it) => it.id);
+    if (added.length === 0) return;
+    added.forEach((id) => knownIds.current!.add(id));
+    sfx.pop();
+    setFreshIds((prev) => new Set([...prev, ...added]));
+    window.setTimeout(() => {
+      setFreshIds((prev) => { const n = new Set(prev); added.forEach((id) => n.delete(id)); return n; });
+    }, 2400);
+  }, [items, loaded]);
+
+  useEffect(() => {
+    const unlock = () => sfx.unlock();
+    window.addEventListener('pointerdown', unlock);
+    return () => window.removeEventListener('pointerdown', unlock);
+  }, []);
 
   useEffect(() => {
     if (!supabase) {
@@ -577,18 +654,21 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
       .on('broadcast', { event: 'hand-raised' }, ({ payload }: any) => {
         if (!payload?.name) return;
         const pid = ++handParticleId.current;
-        setHandParticles((prev) => [...prev, { id: pid, name: payload.name }]);
+        sfx.hand();
+        setHandParticles((prev) => [...prev, { id: pid, name: String(payload.name) }].slice(-8));
         setTimeout(() => {
           setHandParticles((prev) => prev.filter((p) => p.id !== pid));
-        }, 3200);
+        }, 3400);
       })
       .subscribe();
+    channelRef.current = channel;
 
     // 3초 폴링: Realtime 지연·단절 보완
     const pollTimer = window.setInterval(syncAll, 3000);
 
     return () => {
       window.clearInterval(pollTimer);
+      channelRef.current = null;
       supabase?.removeChannel(channel);
     };
   }, [boardId]);
@@ -610,17 +690,29 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
     const newLocked = !board.locked;
     setBoard({ ...board, locked: newLocked });
     await supabase.from('boards').update({ locked: newLocked }).eq('id', boardId);
+    channelRef.current?.send({ type: 'broadcast', event: 'board-updated', payload: { locked: newLocked } });
     show(newLocked ? '보드가 잠겼습니다. 새 제출이 차단됩니다.' : '보드가 열렸습니다.', 'success');
   }
 
-  async function saveNotice() {
-    const notice = noticeInput.trim() || null;
-    if (supabase) {
-      await supabase.from('boards').update({ notice }).eq('id', boardId);
-    }
+  async function saveNotice(value = noticeInput) {
+    const notice = value.trim() || null;
     setBoard((b) => b ? { ...b, notice } : b);
+    setNoticeInput(notice || '');
     setNoticeEditing(false);
+    if (supabase) {
+      const { error } = await supabase.from('boards').update({ notice }).eq('id', boardId);
+      if (error) { show('공지 저장에 실패했습니다.', 'error'); return; }
+      channelRef.current?.send({ type: 'broadcast', event: 'board-updated', payload: { notice } });
+    } else {
+      const stored = JSON.parse(localStorage.getItem(`demo-board-${boardId}`) || 'null') || { id: boardId, title: '데모 생각보드', locked: false };
+      localStorage.setItem(`demo-board-${boardId}`, JSON.stringify({ ...stored, notice }));
+    }
     show(notice ? '공지를 전송했습니다.' : '공지를 삭제했습니다.', 'success');
+  }
+
+  function startTimer(total: number) {
+    if (total <= 0) { show('시간을 1초 이상으로 설정해 주세요.', 'error'); return; }
+    timer.start(Math.min(total, 180 * 60));
   }
 
   function typeLabel(type: BoardItem['type']) {
@@ -685,6 +777,14 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
           <button className="soft-btn" onClick={() => setShowRoulette(true)}>🎲 발표자 추첨</button>
         )}
 
+        <button
+          className="soft-btn"
+          onClick={() => { sfx.setMuted(!muted); setMuted(!muted); }}
+          title={muted ? '효과음 켜기' : '효과음 끄기'}
+        >
+          {muted ? '🔇 효과음 꺼짐' : '🔊 효과음'}
+        </button>
+
         <div className="toolbar-divider" />
 
         {/* 공지 버튼 */}
@@ -704,12 +804,12 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
             value={noticeInput}
             onChange={(e) => setNoticeInput(e.target.value)}
             placeholder="참여자 화면에 표시할 공지를 입력하세요..."
-            onKeyDown={(e) => e.key === 'Enter' && saveNotice()}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) saveNotice(); }}
             autoFocus
           />
-          <button className="primary-btn" style={{ minWidth: 80 }} onClick={saveNotice}>전송</button>
+          <button className="notice-btn notice-btn--send" onClick={() => saveNotice()}>전송</button>
           {board?.notice && (
-            <button className="soft-btn" onClick={() => { setNoticeInput(''); saveNotice(); }}>공지 삭제</button>
+            <button className="notice-btn" onClick={() => saveNotice('')}>공지 삭제</button>
           )}
         </div>
       )}
@@ -722,17 +822,38 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
               <input
                 type="number"
                 className="timer-input"
-                value={timerMinutes}
-                onChange={(e) => setTimerMinutes(e.target.value)}
-                min="1"
-                max="60"
+                aria-label="분"
+                value={timerMin}
+                onChange={(e) => setTimerMin(e.target.value)}
+                min="0"
+                max="180"
               />
               <span>분</span>
-              <button className="primary-btn" onClick={() => timer.start(Number(timerMinutes) || 5)}>시작</button>
+              <input
+                type="number"
+                className="timer-input"
+                aria-label="초"
+                value={timerSec}
+                onChange={(e) => setTimerSec(e.target.value)}
+                min="0"
+                max="59"
+              />
+              <span>초</span>
+              <button
+                className="notice-btn notice-btn--send"
+                onClick={() => startTimer((Math.max(0, Math.floor(Number(timerMin))) || 0) * 60 + (Math.max(0, Math.floor(Number(timerSec))) || 0))}
+              >
+                시작
+              </button>
+              <div className="timer-presets">
+                {[[10, '10초'], [30, '30초'], [60, '1분'], [180, '3분'], [300, '5분']].map(([sec, label]) => (
+                  <button key={sec} className="timer-preset" onClick={() => startTimer(sec as number)}>{label}</button>
+                ))}
+              </div>
             </div>
           ) : (
             <div className="timer-running">
-              <span className={`timer-display ${timer.seconds <= 30 ? 'timer-display--urgent' : ''}`}>
+              <span className={`timer-display ${timer.seconds <= 10 ? 'timer-display--urgent' : ''}`}>
                 {timer.display}
               </span>
               <button className="soft-btn" onClick={timer.running ? timer.pause : timer.resume}>
@@ -749,7 +870,7 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
           <div className="empty-board">아직 붙은 그림이 없습니다. QR로 접속해서 첫 번째 생각을 붙여보세요.</div>
         ) : (
           sortedItems.map((item) => (
-            <article key={item.id} className={`photo-note${shakingId === item.id ? ' card-shaking' : ''}`} style={{ transform: `rotate(${item.rotate}deg)`, '--r': `${item.rotate}deg` } as React.CSSProperties} onClick={() => setSelected(item)}>
+            <article key={item.id} className={`photo-note${shakingId === item.id ? ' card-shaking' : ''}${freshIds.has(item.id) ? ' photo-note--new' : ''}`} style={{ transform: `rotate(${item.rotate}deg)`, '--r': `${item.rotate}deg` } as React.CSSProperties} onClick={() => setSelected(item)}>
               <div className="tape" />
               <img src={item.image_url} alt={item.caption || '보드 이미지'} loading="lazy" crossOrigin="anonymous" />
               <div className="note-footer">
@@ -758,7 +879,7 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
               </div>
               {/* 좋아요 카운트 */}
               {(item.likes || 0) > 0 && (
-                <div className="like-badge">❤️ {item.likes}</div>
+                <div className="like-badge" key={item.likes}>❤️ {item.likes}</div>
               )}
               {isOwner && (
                 <button className="delete-btn" aria-label="항목 삭제" onClick={(e) => { e.stopPropagation(); removeItem(item.id); }}>×</button>
@@ -768,20 +889,36 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
         )}
       </section>
 
-      {/* 손들기 이름 버블 (진행자 화면) */}
-      {handParticles.map((p) => (
-        <div key={p.id} className="hand-name-bubble">
-          <span className="hand-name-text">{p.name}</span>
-          <span className="hand-name-emoji">✋</span>
+      {/* 손들기 이름 (진행자 화면) — 여러 명이 동시에 들면 세로로 쌓인다 */}
+      {handParticles.length > 0 && (
+        <div className={`hand-stack${handParticles.length > 3 ? ' hand-stack--many' : ''}`} aria-live="polite">
+          {handParticles.map((p) => (
+            <div key={p.id} className="hand-name-bubble">
+              <span className="hand-name-emoji">✋</span>
+              <span className="hand-name-text">{p.name}</span>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
+
+      {/* 마지막 10초 카운트다운 */}
+      {timer.seconds > 0 && timer.seconds <= 10 && (
+        <div className={`countdown-overlay${timer.running ? '' : ' countdown-overlay--paused'}`} aria-hidden="true">
+          <div className="countdown-number" key={timer.seconds}>{timer.seconds}</div>
+        </div>
+      )}
+      {ddaeng > 0 && (
+        <div className="ddaeng-overlay" key={ddaeng} role="status">
+          <span>땡!</span>
+        </div>
+      )}
 
       {selected && <ImageModal item={selected} onClose={() => setSelected(null)} />}
       {showRoulette && (
         <RouletteModal
           names={uniqueNames}
           roulette={roulette}
-          onClose={() => setShowRoulette(false)}
+          onClose={() => { roulette.reset(); setShowRoulette(false); }}
         />
       )}
       <Toast toast={toast} />
@@ -799,6 +936,7 @@ function JoinScreen({ boardId }: { boardId: string }) {
   const [board, setBoard] = useState<Board | null>(null);
   const [items, setItems] = useState<BoardItem[]>([]);
   const broadcastRef = useRef<any>(null);
+  const [handCooling, setHandCooling] = useState(false);
   const [myNames, setMyNames] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem(`my-names-${boardId}`) || '[]'); }
     catch { return []; }
@@ -829,12 +967,35 @@ function JoinScreen({ boardId }: { boardId: string }) {
     load();
   }, [boardId]);
 
-  // Realtime 구독
+  // Realtime 구독 + 2초 폴링 (Realtime 지연·단절 보완)
   useEffect(() => {
-    if (!supabase) return;
+    if (!supabase) {
+      const t = window.setInterval(() => {
+        const b = JSON.parse(localStorage.getItem(`demo-board-${boardId}`) || 'null');
+        if (b) setBoard(b);
+        setItems(JSON.parse(localStorage.getItem(`demo-items-${boardId}`) || '[]'));
+      }, 1000);
+      return () => window.clearInterval(t);
+    }
 
-    // Broadcast 채널 (카드 흔들기 + 손들기 신호용)
-    const broadcastChannel = supabase.channel(`board-${boardId}`);
+    let alive = true;
+    async function syncAll() {
+      const [{ data: latestBoard }, { data: latestItems }] = await Promise.all([
+        supabase!.from('boards').select('*').eq('id', boardId).single(),
+        supabase!.from('board_items').select('*').eq('board_id', boardId).order('created_at', { ascending: true }),
+      ]);
+      if (!alive) return;
+      if (latestBoard) setBoard(latestBoard as Board);
+      if (latestItems) setItems(latestItems as BoardItem[]);
+    }
+
+    // Broadcast 채널 (카드 흔들기·손들기 송신 + 진행자 변경 즉시 수신)
+    const broadcastChannel = supabase
+      .channel(`board-${boardId}`)
+      .on('broadcast', { event: 'board-updated' }, ({ payload }: any) => {
+        if (payload) setBoard((prev) => prev ? { ...prev, ...payload } : prev);
+      })
+      .on('broadcast', { event: 'item-uploaded' }, () => { syncAll(); });
     broadcastRef.current = broadcastChannel;
     broadcastChannel.subscribe();
 
@@ -854,11 +1015,23 @@ function JoinScreen({ boardId }: { boardId: string }) {
       })
       .subscribe();
 
+    const pollTimer = window.setInterval(() => { if (!document.hidden) syncAll(); }, 2000);
+    const onVisible = () => { if (!document.hidden) syncAll(); };
+    document.addEventListener('visibilitychange', onVisible);
+
     return () => {
+      alive = false;
+      window.clearInterval(pollTimer);
+      document.removeEventListener('visibilitychange', onVisible);
+      broadcastRef.current = null;
       supabase?.removeChannel(channel);
       supabase?.removeChannel(broadcastChannel);
     };
   }, [boardId]);
+
+  const boardNames = [...new Set(items.map((it) => it.uploader_name).filter(Boolean) as string[])];
+  const checkedNames = myNames.filter((n) => boardNames.includes(n));
+  const handNames = checkedNames.length > 0 ? checkedNames : name.trim() ? [name.trim()] : [];
 
   async function shakeMyCard(itemId: string) {
     if (!broadcastRef.current) return;
@@ -866,10 +1039,24 @@ function JoinScreen({ boardId }: { boardId: string }) {
   }
 
   async function raiseHand() {
-    const currentName = name.trim() || localStorage.getItem('saenggak-name') || '이름 없는 참여자';
-    if (!broadcastRef.current) return;
-    await broadcastRef.current.send({ type: 'broadcast', event: 'hand-raised', payload: { name: currentName } });
-    show('✋ 진행자 화면에 나타납니다!', 'success');
+    if (handCooling) return;
+    if (handNames.length === 0) { show('먼저 이름 또는 별명을 선택하거나 입력해 주세요.', 'error'); return; }
+    const ch = broadcastRef.current;
+    if (!ch) { show('데모 모드에서는 손들기가 전송되지 않습니다.', 'error'); return; }
+    setHandCooling(true);
+    window.setTimeout(() => setHandCooling(false), 3000);
+    const sendOne = (n: string) => ch.send({ type: 'broadcast', event: 'hand-raised', payload: { name: n } });
+    let failed = false;
+    for (const n of handNames) {
+      let res = await sendOne(n);
+      if (res !== 'ok') {
+        await new Promise((r) => setTimeout(r, 400));
+        res = await sendOne(n);
+      }
+      if (res !== 'ok') failed = true;
+    }
+    if (failed) show('손들기 전송에 실패했습니다. 다시 눌러 주세요.', 'error');
+    else show(`✋ ${handNames.join(', ')} — 진행자 화면에 나타납니다!`, 'success');
   }
 
   async function saveItem(type: BoardItem['type'], blob: Blob, ext: string) {
@@ -987,49 +1174,44 @@ function JoinScreen({ boardId }: { boardId: string }) {
               <button className="secondary-btn" disabled={busy} onClick={() => setDrawOpen(true)}>낙서 올리기</button>
               <button className="secondary-btn" disabled={busy} onClick={() => setTextOpen(true)}>텍스트 올리기</button>
             </div>
-            <div style={{ textAlign: 'center', marginTop: 12 }}>
-              <button className="hand-raise-btn" onClick={raiseHand}>
-                <span>✋</span> 손 들기
-              </button>
-            </div>
             <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => handleFiles(e.target.files)} />
             <p className="hint">스마트폰에서는 손가락으로 바로 그릴 수 있습니다.</p>
           </>
         )}
       </section>
 
-      {/* 보드 현황 — 올려진 아이템 + 좋아요 */}
-      {items.length > 0 && (
-        <section className="join-gallery-section">
-          {/* 내 별명 관리 */}
-          {(() => {
-            const boardNames = [...new Set(items.map((it) => it.uploader_name).filter(Boolean) as string[])];
-            if (boardNames.length === 0) return null;
-            return (
-              <div className="my-names-panel">
-                <div className="my-names-title">내 이름/별명 선택 <span className="my-names-hint">체크하면 내 카드를 관리할 수 있습니다</span></div>
-                <div className="my-names-list">
-                  {boardNames.map((n) => (
-                    <label key={n} className={`my-names-chip ${myNames.includes(n) ? 'my-names-chip--active' : ''}`}>
-                      <input
-                        type="checkbox"
-                        checked={myNames.includes(n)}
-                        onChange={(e) => {
-                          const updated = e.target.checked
-                            ? [...myNames, n]
-                            : myNames.filter((x) => x !== n);
-                          setMyNames(updated);
-                          localStorage.setItem(`my-names-${boardId}`, JSON.stringify(updated));
-                        }}
-                        style={{ display: 'none' }}
-                      />
-                      {myNames.includes(n) ? '✓ ' : ''}{n}
-                    </label>
-                  ))}
-                </div>
-              </div>
-            );
-          })()}
+      {/* 내 이름 선택·손들기 + 보드 현황 */}
+      <section className="join-gallery-section">
+        <div className="my-names-panel">
+          <div className="my-names-title">내 이름/별명 선택 <span className="my-names-hint">체크한 이름으로 손을 들고, 내 카드를 관리합니다</span></div>
+          {boardNames.length > 0 ? (
+            <div className="my-names-list">
+              {boardNames.map((n) => (
+                <label key={n} className={`my-names-chip ${myNames.includes(n) ? 'my-names-chip--active' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={myNames.includes(n)}
+                    onChange={(e) => {
+                      const updated = e.target.checked
+                        ? [...myNames, n]
+                        : myNames.filter((x) => x !== n);
+                      setMyNames(updated);
+                      localStorage.setItem(`my-names-${boardId}`, JSON.stringify(updated));
+                    }}
+                    style={{ display: 'none' }}
+                  />
+                  {myNames.includes(n) ? '✓ ' : ''}{n}
+                </label>
+              ))}
+            </div>
+          ) : (
+            <p className="my-names-empty">아직 보드에 올라온 이름이 없습니다. 위에 입력한 이름으로 손을 듭니다.</p>
+          )}
+          <button className="hand-raise-btn hand-raise-btn--wide" onClick={raiseHand} disabled={handCooling}>
+            <span>✋</span> {handCooling ? '손 들었습니다!' : handNames.length > 0 ? `${handNames.join(', ')} 손 들기` : '손 들기'}
+          </button>
+        </div>
+        {items.length > 0 && (<>
           <div className="join-gallery-title">보드 현황 <span>{items.length}개</span></div>
           <div className="join-gallery">
             {[...items].reverse().map((item) => {
@@ -1067,8 +1249,8 @@ function JoinScreen({ boardId }: { boardId: string }) {
               );
             })}
           </div>
-        </section>
-      )}
+        </>)}
+      </section>
 
       <Toast toast={toast} />
       {drawOpen && <DrawingModal onClose={() => setDrawOpen(false)} onSave={(dataUrl) => saveItem('drawing', dataUrlToBlob(dataUrl), 'png')} />}
@@ -1077,7 +1259,60 @@ function JoinScreen({ boardId }: { boardId: string }) {
   );
 }
 
-// ── RouletteModal ─────────────────────────────────────────
+// ── 꽃가루 ────────────────────────────────────────────────
+function Confetti() {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const cv = ref.current;
+    const g = cv?.getContext('2d');
+    if (!cv || !g || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const W = (cv.width = window.innerWidth * dpr);
+    const H = (cv.height = window.innerHeight * dpr);
+    const colors = ['#f5c542', '#ff6b6b', '#4dabf7', '#51cf66', '#ffffff', '#c8974e', '#f783ac'];
+    const ps = Array.from({ length: 200 }, (_, i) => {
+      const fromLeft = i % 2 === 0;
+      return {
+        x: fromLeft ? 0 : W,
+        y: H * (0.55 + Math.random() * 0.4),
+        vx: (fromLeft ? 1 : -1) * (5 + Math.random() * 16) * dpr,
+        vy: -(9 + Math.random() * 20) * dpr,
+        w: (6 + Math.random() * 8) * dpr,
+        h: (4 + Math.random() * 6) * dpr,
+        rot: Math.random() * Math.PI,
+        vr: (Math.random() - 0.5) * 0.4,
+        color: colors[i % colors.length],
+      };
+    });
+    const started = performance.now();
+    let raf = 0;
+    const frame = (now: number) => {
+      const t = now - started;
+      g.clearRect(0, 0, W, H);
+      g.globalAlpha = t > 3600 ? Math.max(0, 1 - (t - 3600) / 900) : 1;
+      for (const p of ps) {
+        p.vy += 0.26 * dpr;
+        p.vx *= 0.99;
+        p.x += p.vx;
+        p.y += p.vy;
+        p.rot += p.vr;
+        g.save();
+        g.translate(p.x, p.y);
+        g.rotate(p.rot);
+        g.fillStyle = p.color;
+        g.fillRect(-p.w / 2, -p.h / 2, p.w, p.h * Math.abs(Math.cos(p.rot * 2)) + 1);
+        g.restore();
+      }
+      if (t < 4500) raf = requestAnimationFrame(frame);
+      else g.clearRect(0, 0, W, H);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  return <canvas ref={ref} className="confetti-canvas" aria-hidden="true" />;
+}
+
+// ── RouletteModal (전체 화면 추첨 무대) ───────────────────
 function RouletteModal({ names, roulette, onClose }: {
   names: string[];
   roulette: ReturnType<typeof useRoulette>;
@@ -1089,33 +1324,44 @@ function RouletteModal({ names, roulette, onClose }: {
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
 
+  const { phase, current, step, progress } = roulette;
+
   return (
-    <div className="draw-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <section className="draw-panel roulette-panel">
-        <h2>🎲 발표자 추첨</h2>
-        <div className={`roulette-display ${roulette.spinning ? 'roulette-spinning' : ''} ${roulette.result ? 'roulette-done' : ''}`}>
-          {roulette.result ? (
-            <>
-              <div className="roulette-result">{roulette.result}</div>
-              <div className="roulette-congrats">🎉 발표자로 선정되었습니다!</div>
-            </>
-          ) : roulette.spinning ? (
-            <div className="roulette-current">{roulette.current}</div>
-          ) : (
-            <div className="roulette-idle">{names.length}명 중 한 명을 추첨합니다</div>
-          )}
-        </div>
-        <div className="draw-actions">
-          <button className="secondary-btn" onClick={onClose}>닫기</button>
-          <button
-            className="primary-btn"
-            onClick={roulette.spin}
-            disabled={roulette.spinning}
+    <div className={`raffle-stage raffle-stage--${phase}`} role="dialog" aria-modal="true" aria-label="발표자 추첨">
+      <div className="raffle-spot" style={{ '--p': progress } as React.CSSProperties} />
+      <div className="raffle-title">🎲 발표자 추첨</div>
+
+      {phase === 'done' && <div className="raffle-bravo">부라보!</div>}
+
+      <div className="raffle-card-wrap">
+        {phase === 'idle' ? (
+          <div className="raffle-card raffle-card--idle">
+            <span className="raffle-idle-count">{names.length}명</span>
+            <span className="raffle-idle-text">중 한 명을 뽑습니다</span>
+          </div>
+        ) : (
+          <div
+            key={phase === 'done' ? 'winner' : step}
+            className={`raffle-card ${phase === 'done' ? 'raffle-card--winner' : 'raffle-card--tick'}`}
+            style={{ '--p': progress } as React.CSSProperties}
           >
-            {roulette.spinning ? '추첨 중...' : roulette.result ? '다시 추첨' : '추첨 시작!'}
-          </button>
-        </div>
-      </section>
+            {current}
+          </div>
+        )}
+      </div>
+
+      <div className="raffle-sub" aria-live="polite">
+        {phase === 'done' ? '🎉 발표자로 선정되었습니다!' : phase === 'spinning' ? '두구두구두구…' : ' '}
+      </div>
+
+      <div className="raffle-actions">
+        <button className="raffle-btn" onClick={onClose}>닫기</button>
+        <button className="raffle-btn raffle-btn--go" onClick={roulette.spin} disabled={phase === 'spinning'}>
+          {phase === 'spinning' ? '추첨 중…' : phase === 'done' ? '다시 추첨' : '추첨 시작!'}
+        </button>
+      </div>
+
+      {phase === 'done' && <Confetti />}
     </div>
   );
 }
