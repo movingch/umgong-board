@@ -1022,6 +1022,73 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
 .toast-success { background: rgba(26,16,8,.92); color: white; }
 .toast-error { background: rgba(192,57,43,.92); color: white; }
 
+/* ── 내 카드 삭제 버튼 (참여자 화면) ─────────────────────── */
+.my-card-delete-btn {
+  position: absolute;
+  top: 5px; left: 5px;
+  z-index: 3;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(192,57,43,.88);
+  color: white;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,.25);
+  transition: transform .15s cubic-bezier(.34,1.4,.64,1), background .15s;
+}
+.my-card-delete-btn:hover { background: rgba(192,57,43,1); transform: scale(1.2); }
+
+/* ── 손 들기 파티클 (진행자 화면) ────────────────────────── */
+.board-page { position: relative; overflow: hidden; }
+
+@keyframes particleRise {
+  0%   { transform: translateY(0) scale(1);   opacity: 1; }
+  60%  { opacity: 1; }
+  100% { transform: translateY(-110vh) scale(1.4); opacity: 0; }
+}
+@keyframes fireworkBurst {
+  0%   { transform: translateY(0) scale(.6) rotate(0deg);  opacity: 1; }
+  40%  { transform: translateY(-45vh) scale(1.3) rotate(180deg); opacity: 1; }
+  70%  { transform: translateY(-70vh) scale(.8) rotate(290deg); opacity: .6; }
+  100% { transform: translateY(-100vh) scale(.4) rotate(360deg); opacity: 0; }
+}
+
+.hand-particle {
+  position: fixed;
+  bottom: -20px;
+  z-index: 999;
+  pointer-events: none;
+  user-select: none;
+}
+.hand-particle--hand {
+  animation: particleRise 2.6s cubic-bezier(.2,.8,.3,1) forwards;
+}
+.hand-particle--firework {
+  animation: fireworkBurst 2.4s cubic-bezier(.15,.85,.3,1) forwards;
+}
+.hand-particle-emoji {
+  font-size: clamp(2.4rem, 5vw, 4.5rem);
+  display: block;
+  filter: drop-shadow(0 4px 16px rgba(200,151,78,.8));
+}
+.hand-particle-name {
+  display: block;
+  background: var(--cork);
+  color: white;
+  font-size: clamp(1rem, 2vw, 1.6rem);
+  font-weight: 900;
+  letter-spacing: -.03em;
+  padding: 8px 18px;
+  border-radius: 999px;
+  box-shadow: 0 8px 32px rgba(200,151,78,.6), 0 0 0 3px rgba(255,255,255,.5);
+  white-space: nowrap;
+  animation-delay: .1s;
+}
+
 /* ══════════════════════════════════════════════════════════
    반응형
 ══════════════════════════════════════════════════════════ */

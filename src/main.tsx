@@ -502,6 +502,8 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
   const [presenceCount, setPresenceCount] = useState(0);
   const [raisedHands, setRaisedHands] = useState<{ id: string; name: string }[]>([]);
   const [shakingId, setShakingId] = useState<string | null>(null);
+  const [handParticles, setHandParticles] = useState<{ id: number; name: string; x: number; type: 'firework' | 'hand' }[]>([]);
+  const handParticleId = useRef(0);
   const [showRoulette, setShowRoulette] = useState(false);
   const [noticeInput, setNoticeInput] = useState('');
   const [noticeEditing, setNoticeEditing] = useState(false);
@@ -595,6 +597,19 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
       })
       .on('broadcast', { event: 'item-uploaded' }, () => {
         syncAll();
+      })
+      .on('broadcast', { event: 'hand-raised' }, ({ payload }: any) => {
+        if (!payload?.name) return;
+        // 폭죽 + 손 파티클 여러 개 생성
+        const particles: { id: number; name: string; x: number; type: 'firework' | 'hand' }[] = [];
+        for (let i = 0; i < 6; i++) {
+          particles.push({ id: ++handParticleId.current, name: payload.name, x: 10 + Math.random() * 80, type: i < 3 ? 'firework' : 'hand' });
+        }
+        setHandParticles((prev) => [...prev, ...particles]);
+        setTimeout(() => {
+          const ids = new Set(particles.map((p) => p.id));
+          setHandParticles((prev) => prev.filter((p) => !ids.has(p.id)));
+        }, 2800);
       })
       .subscribe();
 
@@ -798,6 +813,21 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
         </section>
       )}
 
+      {/* 손 들기 폭죽 파티클 */}
+      {handParticles.map((p) => (
+        <div
+          key={p.id}
+          className={`hand-particle hand-particle--${p.type}`}
+          style={{ left: `${p.x}%` } as React.CSSProperties}
+        >
+          {p.type === 'hand' ? (
+            <span className="hand-particle-emoji">✋</span>
+          ) : (
+            <span className="hand-particle-name">{p.name}</span>
+          )}
+        </div>
+      ))}
+
       {selected && <ImageModal item={selected} onClose={() => setSelected(null)} />}
       {showRoulette && (
         <RouletteModal
@@ -900,11 +930,15 @@ function JoinScreen({ boardId }: { boardId: string }) {
   async function toggleHandRaise() {
     const newState = !handRaised;
     setHandRaised(newState);
+    const currentName = name.trim() || localStorage.getItem('saenggak-name') || '이름 없는 참여자';
     if (presenceRef.current) {
-      const currentName = name.trim() || localStorage.getItem('saenggak-name') || '이름 없는 참여자';
       await presenceRef.current.track({ name: currentName, hand_raised: newState, joined_at: new Date().toISOString() });
     }
-    show(newState ? '손을 들었습니다! 진행자가 확인할 수 있습니다.' : '손을 내렸습니다.', 'success');
+    // Broadcast로 즉각 폭죽 효과 발동
+    if (newState && broadcastRef.current) {
+      await broadcastRef.current.send({ type: 'broadcast', event: 'hand-raised', payload: { name: currentName } });
+    }
+    show(newState ? '✋ 손을 들었습니다! 진행자 화면에 나타납니다.' : '손을 내렸습니다.', 'success');
   }
 
   async function saveItem(type: BoardItem['type'], blob: Blob, ext: string) {
@@ -936,6 +970,23 @@ function JoinScreen({ boardId }: { boardId: string }) {
       show(e instanceof Error ? e.message : '제출에 실패했습니다.', 'error');
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function deleteMyItem(item: BoardItem) {
+    if (!confirm('내 카드를 보드에서 삭제할까요?')) return;
+    setItems((prev) => prev.filter((it) => it.id !== item.id));
+    if (!supabase) {
+      const list = JSON.parse(localStorage.getItem(`demo-items-${boardId}`) || '[]');
+      localStorage.setItem(`demo-items-${boardId}`, JSON.stringify(list.filter((it: BoardItem) => it.id !== item.id)));
+      return;
+    }
+    const { error } = await supabase.from('board_items').delete().eq('id', item.id);
+    if (error) {
+      setItems((prev) => [...prev, item]);
+      show('삭제에 실패했습니다.', 'error');
+    } else {
+      show('카드를 삭제했습니다.', 'success');
     }
   }
 
@@ -1031,6 +1082,13 @@ function JoinScreen({ boardId }: { boardId: string }) {
                   title={isMyCard ? '클릭하면 진행자 화면에서 흔들립니다!' : undefined}
                 >
                   {isMyCard && <div className="my-card-badge">내 것 👆</div>}
+                  {isMyCard && (
+                    <button
+                      className="my-card-delete-btn"
+                      aria-label="내 카드 삭제"
+                      onClick={(e) => { e.stopPropagation(); deleteMyItem(item); }}
+                    >×</button>
+                  )}
                   <img src={item.image_url} alt={item.uploader_name || ''} loading="lazy" />
                   <div className="join-thumb-footer">
                     <span className="join-thumb-name">{item.uploader_name || '참여자'}</span>
