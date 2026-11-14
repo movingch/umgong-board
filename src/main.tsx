@@ -499,10 +499,8 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
   const [selected, setSelected] = useState<BoardItem | null>(null);
   const [qrExpanded, setQrExpanded] = useState(false);
   const [sortByLikes, setSortByLikes] = useState(false);
-  const [presenceCount, setPresenceCount] = useState(0);
-  const [raisedHands, setRaisedHands] = useState<{ id: string; name: string }[]>([]);
   const [shakingId, setShakingId] = useState<string | null>(null);
-  const [handParticles, setHandParticles] = useState<{ id: number; name: string; x: number; type: 'firework' | 'hand' }[]>([]);
+  const [handParticles, setHandParticles] = useState<{ id: number; name: string }[]>([]);
   const handParticleId = useRef(0);
   const [showRoulette, setShowRoulette] = useState(false);
   const [noticeInput, setNoticeInput] = useState('');
@@ -554,28 +552,6 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
       if (latestBoard) setBoard((prev) => prev ? { ...prev, ...(latestBoard as Board) } : latestBoard as Board);
     }
 
-    // Presence: 참여자 수 추적
-    const presenceChannel = supabase.channel(`presence-${boardId}`, {
-      config: { presence: { key: 'facilitator' }, broadcast: { self: true } },
-    });
-    presenceChannel
-      .on('presence', { event: 'sync' }, () => {
-        const state = presenceChannel.presenceState();
-        const participants = Object.entries(state).filter(([k]) => k !== 'facilitator');
-        setPresenceCount(participants.length);
-        const hands: { id: string; name: string }[] = [];
-        participants.forEach(([key, presences]) => {
-          const p = (presences as any[])[0];
-          if (p?.hand_raised && p?.name) hands.push({ id: key, name: p.name });
-        });
-        setRaisedHands(hands);
-      })
-      .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          await presenceChannel.track({ role: 'facilitator', joined_at: new Date().toISOString() });
-        }
-      });
-
     const channel = supabase
       .channel(`board-${boardId}`, { config: { broadcast: { self: true } } })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'board_items', filter: `board_id=eq.${boardId}` }, (payload) => {
@@ -600,16 +576,11 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
       })
       .on('broadcast', { event: 'hand-raised' }, ({ payload }: any) => {
         if (!payload?.name) return;
-        // 폭죽 + 손 파티클 여러 개 생성
-        const particles: { id: number; name: string; x: number; type: 'firework' | 'hand' }[] = [];
-        for (let i = 0; i < 6; i++) {
-          particles.push({ id: ++handParticleId.current, name: payload.name, x: 10 + Math.random() * 80, type: i < 3 ? 'firework' : 'hand' });
-        }
-        setHandParticles((prev) => [...prev, ...particles]);
+        const pid = ++handParticleId.current;
+        setHandParticles((prev) => [...prev, { id: pid, name: payload.name }]);
         setTimeout(() => {
-          const ids = new Set(particles.map((p) => p.id));
-          setHandParticles((prev) => prev.filter((p) => !ids.has(p.id)));
-        }, 2800);
+          setHandParticles((prev) => prev.filter((p) => p.id !== pid));
+        }, 3200);
       })
       .subscribe();
 
@@ -619,7 +590,6 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
     return () => {
       window.clearInterval(pollTimer);
       supabase?.removeChannel(channel);
-      supabase?.removeChannel(presenceChannel);
     };
   }, [boardId]);
 
@@ -669,9 +639,6 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
           <div className="brand small">생각보드</div>
           <h1>{board?.title || '생각보드'}</h1>
           <p>참여자는 스마트폰으로 그리고 올립니다. 진행자는 이 화면을 빔프로젝터에 띄우세요.</p>
-          {presenceCount > 0 && (
-            <div className="presence-badge">👥 현재 {presenceCount}명 접속 중</div>
-          )}
         </div>
         <div className={`qr-box ${qrExpanded ? 'qr-box--expanded' : ''}`} onClick={() => setQrExpanded(!qrExpanded)} style={{ cursor: qrExpanded ? 'zoom-out' : 'zoom-in' }} title={qrExpanded ? '클릭하면 작아집니다' : '클릭하면 크게 보입니다'}>
           <QRCodeSVG value={joinUrl} size={qrExpanded ? 220 : 90} />
@@ -801,30 +768,11 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
         )}
       </section>
 
-      {/* 손든 사람 목록 */}
-      {raisedHands.length > 0 && (
-        <section className="raised-hands-bar">
-          <span className="raised-hands-label">✋ 손든 참여자</span>
-          {raisedHands.map((h) => (
-            <span key={h.id} className="raised-hand-chip">
-              <span className="waving-hand">✋</span> {h.name}
-            </span>
-          ))}
-        </section>
-      )}
-
-      {/* 손 들기 폭죽 파티클 */}
+      {/* 손들기 이름 버블 (진행자 화면) */}
       {handParticles.map((p) => (
-        <div
-          key={p.id}
-          className={`hand-particle hand-particle--${p.type}`}
-          style={{ left: `${p.x}%` } as React.CSSProperties}
-        >
-          {p.type === 'hand' ? (
-            <span className="hand-particle-emoji">✋</span>
-          ) : (
-            <span className="hand-particle-name">{p.name}</span>
-          )}
+        <div key={p.id} className="hand-name-bubble">
+          <span className="hand-name-text">{p.name}</span>
+          <span className="hand-name-emoji">✋</span>
         </div>
       ))}
 
@@ -850,16 +798,17 @@ function JoinScreen({ boardId }: { boardId: string }) {
   const [textOpen, setTextOpen] = useState(false);
   const [board, setBoard] = useState<Board | null>(null);
   const [items, setItems] = useState<BoardItem[]>([]);
-  const [handRaised, setHandRaised] = useState(false);
   const broadcastRef = useRef<any>(null);
+  const [myNames, setMyNames] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem(`my-names-${boardId}`) || '[]'); }
+    catch { return []; }
+  });
   const [likedItems, setLikedItems] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem(`liked-${boardId}`) || '[]')); }
     catch { return new Set(); }
   });
   const fileRef = useRef<HTMLInputElement>(null);
   const { toast, show } = useToast();
-  const participantId = useRef(uid()); // 이 세션의 참여자 ID
-  const presenceRef = useRef<any>(null);
 
   // 보드 정보 + 아이템 로드
   useEffect(() => {
@@ -884,20 +833,10 @@ function JoinScreen({ boardId }: { boardId: string }) {
   useEffect(() => {
     if (!supabase) return;
 
-    // Broadcast 채널 (카드 흔들기 신호용)
+    // Broadcast 채널 (카드 흔들기 + 손들기 신호용)
     const broadcastChannel = supabase.channel(`board-${boardId}`);
     broadcastRef.current = broadcastChannel;
     broadcastChannel.subscribe();
-
-    // Presence: 이 참여자를 등록
-    const presenceChannel = supabase.channel(`presence-${boardId}`, { config: { presence: { key: participantId.current } } });
-    presenceRef.current = presenceChannel;
-    presenceChannel.subscribe(async (status) => {
-      if (status === 'SUBSCRIBED') {
-        const storedName = localStorage.getItem('saenggak-name') || '';
-        await presenceChannel.track({ joined_at: new Date().toISOString(), name: storedName, hand_raised: false });
-      }
-    });
 
     const channel = supabase
       .channel(`join-${boardId}`)
@@ -917,7 +856,6 @@ function JoinScreen({ boardId }: { boardId: string }) {
 
     return () => {
       supabase?.removeChannel(channel);
-      supabase?.removeChannel(presenceChannel);
       supabase?.removeChannel(broadcastChannel);
     };
   }, [boardId]);
@@ -927,24 +865,23 @@ function JoinScreen({ boardId }: { boardId: string }) {
     await broadcastRef.current.send({ type: 'broadcast', event: 'shake-card', payload: { itemId } });
   }
 
-  async function toggleHandRaise() {
-    const newState = !handRaised;
-    setHandRaised(newState);
+  async function raiseHand() {
     const currentName = name.trim() || localStorage.getItem('saenggak-name') || '이름 없는 참여자';
-    if (presenceRef.current) {
-      await presenceRef.current.track({ name: currentName, hand_raised: newState, joined_at: new Date().toISOString() });
-    }
-    // Broadcast로 즉각 폭죽 효과 발동
-    if (newState && broadcastRef.current) {
-      await broadcastRef.current.send({ type: 'broadcast', event: 'hand-raised', payload: { name: currentName } });
-    }
-    show(newState ? '✋ 손을 들었습니다! 진행자 화면에 나타납니다.' : '손을 내렸습니다.', 'success');
+    if (!broadcastRef.current) return;
+    await broadcastRef.current.send({ type: 'broadcast', event: 'hand-raised', payload: { name: currentName } });
+    show('✋ 진행자 화면에 나타납니다!', 'success');
   }
 
   async function saveItem(type: BoardItem['type'], blob: Blob, ext: string) {
     setBusy(true);
     try {
       localStorage.setItem('saenggak-name', name);
+      const submittedName = name.trim() || '이름 없는 참여자';
+      if (submittedName && !myNames.includes(submittedName)) {
+        const updated = [...myNames, submittedName];
+        setMyNames(updated);
+        localStorage.setItem(`my-names-${boardId}`, JSON.stringify(updated));
+      }
       const imageUrl = await uploadBlob(boardId, blob, ext);
       const item: BoardItem = {
         id: uid(), board_id: boardId, type, image_url: imageUrl,
@@ -1041,7 +978,7 @@ function JoinScreen({ boardId }: { boardId: string }) {
           <>
             <h1>사진이나 낙서를 보드에 붙이세요.</h1>
             {!isSupabaseReady && <div className="warning">데모 모드입니다. 같은 브라우저 안에서만 확인됩니다.</div>}
-            <label className="field-label" htmlFor="join-name">이름</label>
+            <label className="field-label" htmlFor="join-name">이름 또는 별명</label>
             <input id="join-name" className="title-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="이름 또는 별명" />
             <label className="field-label" htmlFor="join-caption">짧은 설명</label>
             <input id="join-caption" className="title-input" value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="선택 사항" />
@@ -1051,14 +988,9 @@ function JoinScreen({ boardId }: { boardId: string }) {
               <button className="secondary-btn" disabled={busy} onClick={() => setTextOpen(true)}>텍스트 올리기</button>
             </div>
             <div style={{ textAlign: 'center', marginTop: 12 }}>
-              <button
-                className={`hand-raise-btn ${handRaised ? 'hand-raise-btn--active' : ''}`}
-                onClick={toggleHandRaise}
-              >
-                <span className={handRaised ? 'waving-hand' : ''}>✋</span>
-                {handRaised ? ' 손 내리기' : ' 손 들기'}
+              <button className="hand-raise-btn" onClick={raiseHand}>
+                <span>✋</span> 손 들기
               </button>
-              {handRaised && <p className="hint" style={{ color: '#c89f62' }}>진행자에게 표시됩니다!</p>}
             </div>
             <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => handleFiles(e.target.files)} />
             <p className="hint">스마트폰에서는 손가락으로 바로 그릴 수 있습니다.</p>
@@ -1069,10 +1001,41 @@ function JoinScreen({ boardId }: { boardId: string }) {
       {/* 보드 현황 — 올려진 아이템 + 좋아요 */}
       {items.length > 0 && (
         <section className="join-gallery-section">
+          {/* 내 별명 관리 */}
+          {(() => {
+            const boardNames = [...new Set(items.map((it) => it.uploader_name).filter(Boolean) as string[])];
+            if (boardNames.length === 0) return null;
+            return (
+              <div className="my-names-panel">
+                <div className="my-names-title">내 이름/별명 선택 <span className="my-names-hint">체크하면 내 카드를 관리할 수 있습니다</span></div>
+                <div className="my-names-list">
+                  {boardNames.map((n) => (
+                    <label key={n} className={`my-names-chip ${myNames.includes(n) ? 'my-names-chip--active' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={myNames.includes(n)}
+                        onChange={(e) => {
+                          const updated = e.target.checked
+                            ? [...myNames, n]
+                            : myNames.filter((x) => x !== n);
+                          setMyNames(updated);
+                          localStorage.setItem(`my-names-${boardId}`, JSON.stringify(updated));
+                        }}
+                        style={{ display: 'none' }}
+                      />
+                      {myNames.includes(n) ? '✓ ' : ''}{n}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
           <div className="join-gallery-title">보드 현황 <span>{items.length}개</span></div>
           <div className="join-gallery">
             {[...items].reverse().map((item) => {
-              const isMyCard = item.uploader_name === (name.trim() || localStorage.getItem('saenggak-name'));
+              const isMyCard = myNames.length > 0
+                ? myNames.includes(item.uploader_name || '')
+                : item.uploader_name === (name.trim() || localStorage.getItem('saenggak-name'));
               return (
                 <div
                   key={item.id}
