@@ -17,4 +17,5 @@ export type BoardItem = {
   rotate: number;
   created_at: string;
   likes: number;
+  reactions?: Record<string, number> | null;
 };

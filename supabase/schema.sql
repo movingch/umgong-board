@@ -46,3 +46,38 @@ create policy "public_upload_board_images" on storage.objects for insert
 -- 아래 두 줄을 Supabase SQL Editor에서 실행해야 실시간 구독이 동작합니다.
 alter publication supabase_realtime add table public.board_items;
 alter table public.board_items replica identity full;
+
+-- ── 이모티콘 반응 ────────────────────────────────────────
+alter table public.board_items add column if not exists likes int not null default 0;
+alter table public.board_items add column if not exists reactions jsonb not null default '{}'::jsonb;
+
+-- 반응 수를 한 번에 하나씩만 올리거나 내린다. 카드의 다른 내용은 바꿀 수 없다.
+create or replace function public.react_to_item(p_item uuid, p_kind text, p_delta int)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  r jsonb;
+begin
+  if p_kind not in ('like', 'cool', 'thanks', 'fun', 'best') or p_delta not in (1, -1) then
+    raise exception 'invalid reaction';
+  end if;
+  update board_items
+     set reactions = jsonb_set(reactions, array[p_kind],
+           to_jsonb(greatest(0, coalesce((reactions ->> p_kind)::int, 0) + p_delta)))
+   where id = p_item
+  returning reactions into r;
+  if r is null then
+    return null;
+  end if;
+  update board_items
+     set likes = (select coalesce(sum(value::int), 0) from jsonb_each_text(r))
+   where id = p_item;
+  return r;
+end;
+$$;
+
+revoke all on function public.react_to_item(uuid, text, int) from public;
+grant execute on function public.react_to_item(uuid, text, int) to anon, authenticated;

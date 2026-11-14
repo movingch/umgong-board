@@ -641,7 +641,7 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
 /* 카드 하단 */
 .note-footer {
   position: absolute;
-  left: 11px; right: 11px; bottom: 10px;
+  left: 11px; right: 52px; bottom: 10px;
   display: flex;
   justify-content: space-between;
   gap: 8px;
@@ -1192,6 +1192,76 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
 .like-btn--active { color: #e53935; background: rgba(220,50,60,.12); }
 .like-btn--active:hover { background: rgba(220,50,60,.2); }
 
+/* 이모티콘 반응 (참여자 화면) */
+.react-bar { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; padding: 0 6px 8px; }
+.react-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  min-height: 44px; padding: 3px 0;
+  border: 1.5px solid transparent; border-radius: 10px;
+  background: rgba(0,0,0,.04);
+  font-size: 17px; line-height: 1; cursor: pointer;
+  filter: grayscale(.7); opacity: .7;
+  transition: transform .15s cubic-bezier(.34,1.7,.64,1), background .15s, filter .15s, opacity .15s;
+}
+.react-btn b { font-size: 11px; font-weight: 900; color: var(--ink-soft); }
+.react-btn:active { transform: scale(.85); }
+.react-btn.is-on { filter: none; opacity: 1; background: rgba(200,151,78,.2); border-color: var(--cork); transform: scale(1.06); }
+.react-btn.is-on b { color: var(--cork-dark); }
+
+/* 반응 배지·떠오르는 이모티콘·신호 버튼 (진행자 화면) */
+.react-badges {
+  position: absolute; top: 8px; left: 8px; right: 44px;
+  display: flex; flex-wrap: wrap; gap: 4px;
+  pointer-events: none;
+  animation: likePop .45s cubic-bezier(.3,1.8,.5,1) both;
+  transform-origin: left top;
+}
+.react-badges span {
+  background: rgba(255,255,255,.94); color: var(--ink);
+  border-radius: 999px; padding: 3px 8px;
+  font-size: 13px; font-weight: 900;
+  box-shadow: 0 2px 8px rgba(0,0,0,.22);
+}
+.emoji-burst {
+  position: absolute; left: 50%; top: 45%; z-index: 6;
+  font-size: clamp(34px, 3.4vw, 56px);
+  pointer-events: none;
+  animation: emojiFloat 1.8s cubic-bezier(.2,.8,.3,1) both;
+}
+@keyframes emojiFloat {
+  0%   { opacity: 0; transform: translate(-50%, 0) scale(.3); }
+  15%  { opacity: 1; transform: translate(calc(-50% + var(--dx) * .2), -20px) scale(1.5); }
+  30%  { transform: translate(calc(-50% + var(--dx) * .4), -50px) scale(1); }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--dx)), -190px) scale(1.2) rotate(18deg); }
+}
+.poke-btn {
+  position: absolute; right: 8px; bottom: 8px;
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 1.5px solid var(--line); background: white;
+  font-size: 17px; cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,.18);
+  transition: transform .15s cubic-bezier(.34,1.7,.64,1), background .15s;
+}
+.poke-btn:hover { transform: scale(1.18) rotate(-12deg); background: #fff6d6; }
+.poke-btn:active { transform: scale(.9); }
+.image-poke-btn { margin: 14px auto 6px; display: block; background: linear-gradient(180deg, #ffd24a, #f0a01c); border-color: #ffe08a; color: #3a2204; }
+
+/* 진행자 신호 (참여자 화면) */
+.poke-overlay {
+  position: fixed; inset: 0; z-index: 1400;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  border: 0; padding: 24px;
+  background: radial-gradient(ellipse at center, #ffb300 0%, #f06a00 100%);
+  color: white; text-align: center; cursor: pointer;
+  animation: pokeFlash .5s ease-in-out 4 alternate;
+}
+@keyframes pokeFlash { from { filter: brightness(1); } to { filter: brightness(1.35); } }
+.poke-bell { font-size: 110px; animation: pokeRing .35s ease-in-out infinite alternate; transform-origin: 50% 10%; }
+@keyframes pokeRing { from { transform: rotate(-22deg); } to { transform: rotate(22deg); } }
+.poke-overlay strong { font-size: clamp(2rem, 9vw, 4rem); font-weight: 900; letter-spacing: -.04em; text-shadow: 0 4px 18px rgba(0,0,0,.3); }
+.poke-overlay span { font-size: clamp(1.2rem, 5vw, 2rem); font-weight: 800; }
+.poke-overlay small { margin-top: 18px; font-size: 14px; opacity: .85; }
+
 /* 잠금 상태 */
 .locked-state {
   text-align: center;
@@ -1255,7 +1325,7 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
     print-color-adjust: exact !important;
   }
   .photo-note { box-shadow: 0 4px 10px rgba(0,0,0,.2) !important; break-inside: avoid; }
-  .delete-btn, .like-badge { display: none !important; }
+  .delete-btn, .like-badge, .poke-btn, .emoji-burst { display: none !important; }
   .photo-note img { opacity: 1 !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   .empty-board { display: none !important; }
 }
@@ -1519,6 +1589,7 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
   @keyframes modalIn { from { opacity: 0; } to { opacity: 1; } }
   .raffle-spot, .countdown-overlay, .hand-name-emoji, .raffle-bravo, .raffle-card--winner { animation: none !important; }
   .pinball-banner { animation: fadeIn .2s ease both; }
+  .poke-overlay, .poke-bell, .emoji-burst { animation: none !important; }
   .raffle-card--tick, .photo-note--new { animation: fadeIn .15s ease both; }
   .countdown-number { animation-name: reducedShow; }
   .ddaeng-overlay span, .hand-float, .hand-float-inner { animation: none !important; }

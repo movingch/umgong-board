@@ -11,6 +11,17 @@ import { ensureBoardOgImage } from './ogImage';
 import './styles.css';
 
 const BUCKET = 'board-images';
+
+// 카드에 붙이는 이모티콘 반응
+const REACTIONS = [
+  { kind: 'like', emoji: '❤️', label: '좋아요' },
+  { kind: 'cool', emoji: '😎', label: '멋져요' },
+  { kind: 'thanks', emoji: '🙏', label: '감사해요' },
+  { kind: 'fun', emoji: '😂', label: '재미있어요' },
+  { kind: 'best', emoji: '🏆', label: '최고예요' },
+] as const;
+const totalReactions = (r: Record<string, number> | null | undefined) =>
+  REACTIONS.reduce((n, x) => n + (r?.[x.kind] || 0), 0);
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // ── 내 보드 히스토리 (데모 모드용 localStorage) ───────────
@@ -569,6 +580,9 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
   const handSeq = useRef(0);
   const handClearTimer = useRef<number>(0);
   const [handPickOpen, setHandPickOpen] = useState(false);
+  const [emojiBursts, setEmojiBursts] = useState<{ id: number; itemId: string; emoji: string; dx: number }[]>([]);
+  const prevReacts = useRef<Map<string, Record<string, number>> | null>(null);
+  const burstSeq = useRef(0);
   const [pinball, setPinball] = useState<{ names: string[]; title: string; fromHands: boolean } | null>(null);
   const [showRoulette, setShowRoulette] = useState(false);
   const [noticeInput, setNoticeInput] = useState('');
@@ -640,6 +654,29 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
     }, 2400);
   }, [items, loaded]);
 
+  // 반응이 늘어난 카드에서 이모티콘이 떠오른다
+  useEffect(() => {
+    if (!loaded) return;
+    const current = new Map(items.map((it) => [it.id, it.reactions || {}]));
+    const before = prevReacts.current;
+    prevReacts.current = current;
+    if (!before) return;
+    const added: { id: number; itemId: string; emoji: string; dx: number }[] = [];
+    for (const [itemId, r] of current) {
+      const old = before.get(itemId);
+      if (!old) continue;
+      for (const x of REACTIONS) {
+        const diff = Math.min(3, (r[x.kind] || 0) - (old[x.kind] || 0));
+        for (let i = 0; i < diff; i++) added.push({ id: ++burstSeq.current, itemId, emoji: x.emoji, dx: Math.round((Math.random() - 0.5) * 120) });
+      }
+    }
+    if (added.length === 0) return;
+    sfx.pop();
+    setEmojiBursts((prev) => [...prev, ...added].slice(-60));
+    const ids = new Set(added.map((a) => a.id));
+    window.setTimeout(() => setEmojiBursts((prev) => prev.filter((b) => !ids.has(b.id))), 1900);
+  }, [items, loaded]);
+
   useEffect(() => {
     const unlock = () => sfx.unlock();
     window.addEventListener('pointerdown', unlock);
@@ -670,7 +707,8 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
         setItems((prev) => prev.some((it) => it.id === payload.new.id) ? prev : [...prev, payload.new as BoardItem]);
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'board_items', filter: `board_id=eq.${boardId}` }, (payload) => {
-        setItems((prev) => prev.map((it) => it.id === payload.new.id ? { ...it, likes: (payload.new as BoardItem).likes } : it));
+        const next = payload.new as BoardItem;
+        setItems((prev) => prev.map((it) => it.id === next.id ? { ...it, likes: next.likes, reactions: next.reactions } : it));
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'board_items', filter: `board_id=eq.${boardId}` }, (payload) => {
         setItems((prev) => prev.filter((it) => it.id !== payload.old.id));
@@ -743,6 +781,16 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
       localStorage.setItem(`demo-board-${boardId}`, JSON.stringify({ ...stored, notice }));
     }
     show(notice ? '공지를 전송했습니다.' : '공지를 삭제했습니다.', 'success');
+  }
+
+  // 카드 주인(참여자)의 화면에 신호를 보낸다
+  async function pokeItem(item: BoardItem) {
+    const target = item.uploader_name || '참여자';
+    setShakingId(item.id);
+    window.setTimeout(() => setShakingId(null), 900);
+    if (!channelRef.current) { show('데모 모드에서는 신호가 전송되지 않습니다.', 'error'); return; }
+    const res = await channelRef.current.send({ type: 'broadcast', event: 'poke', payload: { itemId: item.id, name: target } });
+    show(res === 'ok' ? `🔔 ${target}님에게 신호를 보냈습니다.` : '신호 전송에 실패했습니다. 다시 눌러 주세요.', res === 'ok' ? 'success' : 'error');
   }
 
   function startTimer(total: number) {
@@ -911,10 +959,22 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
                 <strong>{item.uploader_name || '참여자'}</strong>
                 <span>{typeLabel(item.type)}</span>
               </div>
-              {/* 좋아요 카운트 */}
-              {(item.likes || 0) > 0 && (
-                <div className="like-badge" key={item.likes}>❤️ {item.likes}</div>
+              {totalReactions(item.reactions) > 0 && (
+                <div className="react-badges" key={totalReactions(item.reactions)}>
+                  {REACTIONS.filter((x) => (item.reactions?.[x.kind] || 0) > 0).map((x) => (
+                    <span key={x.kind} title={x.label}>{x.emoji}{item.reactions![x.kind]}</span>
+                  ))}
+                </div>
               )}
+              {emojiBursts.filter((b) => b.itemId === item.id).map((b) => (
+                <span key={b.id} className="emoji-burst" style={{ '--dx': `${b.dx}px` } as React.CSSProperties} aria-hidden="true">{b.emoji}</span>
+              ))}
+              <button
+                className="poke-btn"
+                aria-label={`${item.uploader_name || '참여자'}님에게 신호 보내기`}
+                title="이 참여자에게 신호 보내기"
+                onClick={(e) => { e.stopPropagation(); pokeItem(item); }}
+              >🔔</button>
               {isOwner && (
                 <button className="delete-btn" aria-label="항목 삭제" onClick={(e) => { e.stopPropagation(); removeItem(item.id); }}>×</button>
               )}
@@ -965,7 +1025,7 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
         </div>
       )}
 
-      {selected && <ImageModal item={selected} onClose={() => setSelected(null)} />}
+      {selected && <ImageModal item={selected} onClose={() => setSelected(null)} onPoke={() => pokeItem(selected)} />}
       {showRoulette && (
         <RouletteModal
           names={uniqueNames}
@@ -1004,14 +1064,37 @@ function JoinScreen({ boardId }: { boardId: string }) {
   const [items, setItems] = useState<BoardItem[]>([]);
   const broadcastRef = useRef<any>(null);
   const [handCooling, setHandCooling] = useState(false);
-  const [myNames, setMyNames] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem(`my-names-${boardId}`) || '[]'); }
+  // 이 기기에서 직접 제출한 카드만 '내 것'으로 다룬다 (남의 이름을 골라 조작할 수 없게)
+  const [own, setOwn] = useState<{ ids: string[]; legacyName: string; since: string }>(() => {
+    try {
+      const saved = localStorage.getItem(`own-${boardId}`);
+      if (saved) return JSON.parse(saved);
+    } catch { /* 새로 만든다 */ }
+    // 이 기능 이전에 올린 카드는 그때 저장된 이름으로만 인정한다
+    const fresh = { ids: [], legacyName: localStorage.getItem('saenggak-name') || '', since: new Date().toISOString() };
+    localStorage.setItem(`own-${boardId}`, JSON.stringify(fresh));
+    return fresh;
+  });
+  const [handOff, setHandOff] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem(`hand-off-${boardId}`) || '[]'); }
     catch { return []; }
   });
-  const [likedItems, setLikedItems] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem(`liked-${boardId}`) || '[]')); }
-    catch { return new Set(); }
+  const isMine = (item: BoardItem) =>
+    own.ids.includes(item.id)
+    || (!!own.legacyName && item.uploader_name === own.legacyName && item.created_at < own.since);
+  // 내가 누른 반응: 카드 id → 반응 종류들 (예전 좋아요 기록은 '좋아요'로 옮긴다)
+  const [myReacts, setMyReacts] = useState<Record<string, string[]>>(() => {
+    try {
+      const saved = localStorage.getItem(`reacts-${boardId}`);
+      if (saved) return JSON.parse(saved);
+      const liked: string[] = JSON.parse(localStorage.getItem(`liked-${boardId}`) || '[]');
+      return Object.fromEntries(liked.map((id) => [id, ['like']]));
+    } catch { return {}; }
   });
+  const pendingReacts = useRef(new Map<string, number>());
+  const [poke, setPoke] = useState<{ id: number; name: string } | null>(null);
+  const mineRef = useRef(new Set<string>());
+  mineRef.current = new Set([...items.filter(isMine).map((it) => it.uploader_name || ''), name.trim()].filter(Boolean));
   const fileRef = useRef<HTMLInputElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const { toast, show } = useToast();
@@ -1054,7 +1137,16 @@ function JoinScreen({ boardId }: { boardId: string }) {
       ]);
       if (!alive) return;
       if (latestBoard) setBoard(latestBoard as Board);
-      if (latestItems) setItems(latestItems as BoardItem[]);
+      if (latestItems) {
+        // 저장 중인 반응은 서버 값으로 덮어쓰지 않는다
+        setItems((prev) => {
+          const local = new Map(prev.map((it) => [it.id, it]));
+          return (latestItems as BoardItem[]).map((it) => {
+            const mine = pendingReacts.current.has(it.id) ? local.get(it.id) : undefined;
+            return mine ? { ...it, reactions: mine.reactions, likes: mine.likes } : it;
+          });
+        });
+      }
     }
 
     // Broadcast 채널 (카드 흔들기·손들기 송신 + 진행자 변경 즉시 수신)
@@ -1063,7 +1155,14 @@ function JoinScreen({ boardId }: { boardId: string }) {
       .on('broadcast', { event: 'board-updated' }, ({ payload }: any) => {
         if (payload) setBoard((prev) => prev ? { ...prev, ...payload } : prev);
       })
-      .on('broadcast', { event: 'item-uploaded' }, () => { syncAll(); });
+      .on('broadcast', { event: 'item-uploaded' }, () => { syncAll(); })
+      .on('broadcast', { event: 'poke' }, ({ payload }: any) => {
+        if (!payload?.name || !mineRef.current.has(String(payload.name))) return;
+        setPoke({ id: Date.now(), name: String(payload.name) });
+        navigator.vibrate?.([250, 120, 250, 120, 450]);
+        sfx.gate();
+        sfx.beep(true);
+      });
     broadcastRef.current = broadcastChannel;
     broadcastChannel.subscribe();
 
@@ -1073,7 +1172,9 @@ function JoinScreen({ boardId }: { boardId: string }) {
         setItems((prev) => prev.some((it) => it.id === payload.new.id) ? prev : [...prev, payload.new as BoardItem]);
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'board_items', filter: `board_id=eq.${boardId}` }, (payload) => {
-        setItems((prev) => prev.map((it) => it.id === payload.new.id ? { ...it, likes: (payload.new as BoardItem).likes } : it));
+        const next = payload.new as BoardItem;
+        if (pendingReacts.current.has(next.id)) return;
+        setItems((prev) => prev.map((it) => it.id === next.id ? { ...it, likes: next.likes, reactions: next.reactions } : it));
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'board_items', filter: `board_id=eq.${boardId}` }, (payload) => {
         setItems((prev) => prev.filter((it) => it.id !== payload.old.id));
@@ -1097,8 +1198,8 @@ function JoinScreen({ boardId }: { boardId: string }) {
     };
   }, [boardId]);
 
-  const boardNames = [...new Set(items.map((it) => it.uploader_name).filter(Boolean) as string[])];
-  const checkedNames = myNames.filter((n) => boardNames.includes(n));
+  const ownNames = [...new Set(items.filter(isMine).map((it) => it.uploader_name).filter(Boolean) as string[])];
+  const checkedNames = ownNames.filter((n) => !handOff.includes(n));
   const handNames = checkedNames.length > 0 ? checkedNames : name.trim() ? [name.trim()] : [];
 
   async function shakeMyCard(itemId: string) {
@@ -1140,11 +1241,6 @@ function JoinScreen({ boardId }: { boardId: string }) {
     try {
       const submittedName = name.trim();
       localStorage.setItem('saenggak-name', submittedName);
-      if (submittedName && !myNames.includes(submittedName)) {
-        const updated = [...myNames, submittedName];
-        setMyNames(updated);
-        localStorage.setItem(`my-names-${boardId}`, JSON.stringify(updated));
-      }
       const imageUrl = await uploadBlob(boardId, blob, ext);
       const item: BoardItem = {
         id: uid(), board_id: boardId, type, image_url: imageUrl,
@@ -1152,6 +1248,7 @@ function JoinScreen({ boardId }: { boardId: string }) {
         caption: caption.trim() || null, rotate: randomRotate(),
         created_at: new Date().toISOString(),
         likes: 0,
+        reactions: {},
       };
       if (!supabase) {
         const list = JSON.parse(localStorage.getItem(`demo-items-${boardId}`) || '[]');
@@ -1164,6 +1261,11 @@ function JoinScreen({ boardId }: { boardId: string }) {
           await broadcastRef.current.send({ type: 'broadcast', event: 'item-uploaded', payload: { itemId: item.id } });
         }
       }
+      setOwn((prev) => {
+        const next = { ...prev, ids: [...prev.ids, item.id] };
+        localStorage.setItem(`own-${boardId}`, JSON.stringify(next));
+        return next;
+      });
       setCaption('');
       show('보드에 붙였습니다. PC 화면을 확인하세요.', 'success');
     } catch (e) {
@@ -1174,6 +1276,7 @@ function JoinScreen({ boardId }: { boardId: string }) {
   }
 
   async function deleteMyItem(item: BoardItem) {
+    if (!isMine(item)) return;
     if (!confirm('내 카드를 보드에서 삭제할까요?')) return;
     setItems((prev) => prev.filter((it) => it.id !== item.id));
     if (!supabase) {
@@ -1190,19 +1293,42 @@ function JoinScreen({ boardId }: { boardId: string }) {
     }
   }
 
-  async function toggleLike(item: BoardItem) {
-    const already = likedItems.has(item.id);
-    const newCount = already ? Math.max(0, (item.likes || 0) - 1) : (item.likes || 0) + 1;
+  async function toggleReaction(item: BoardItem, kind: string) {
+    const mine = myReacts[item.id] || [];
+    const on = mine.includes(kind);
+    const delta = on ? -1 : 1;
+    const apply = (it: BoardItem, d: number): BoardItem => {
+      const reactions = { ...(it.reactions || {}), [kind]: Math.max(0, (it.reactions?.[kind] || 0) + d) };
+      return { ...it, reactions, likes: totalReactions(reactions) };
+    };
+    const saveMine = (list: string[]) => {
+      setMyReacts((prev) => {
+        const next = { ...prev, [item.id]: list };
+        localStorage.setItem(`reacts-${boardId}`, JSON.stringify(next));
+        return next;
+      });
+    };
 
-    // Optimistic UI
-    setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, likes: newCount } : it));
-    const newLiked = new Set(likedItems);
-    if (already) newLiked.delete(item.id); else newLiked.add(item.id);
-    setLikedItems(newLiked);
-    localStorage.setItem(`liked-${boardId}`, JSON.stringify([...newLiked]));
+    setItems((prev) => prev.map((it) => it.id === item.id ? apply(it, delta) : it));
+    saveMine(on ? mine.filter((k) => k !== kind) : [...mine, kind]);
 
-    if (supabase) {
-      await supabase.from('board_items').update({ likes: newCount }).eq('id', item.id);
+    if (!supabase) {
+      const list: BoardItem[] = JSON.parse(localStorage.getItem(`demo-items-${boardId}`) || '[]');
+      localStorage.setItem(`demo-items-${boardId}`, JSON.stringify(list.map((it) => it.id === item.id ? apply(it, delta) : it)));
+      return;
+    }
+    const pending = pendingReacts.current;
+    pending.set(item.id, (pending.get(item.id) || 0) + 1);
+    const { data, error } = await supabase.rpc('react_to_item', { p_item: item.id, p_kind: kind, p_delta: delta });
+    const left = (pending.get(item.id) || 1) - 1;
+    if (left > 0) pending.set(item.id, left); else pending.delete(item.id);
+    if (error) {
+      setItems((prev) => prev.map((it) => it.id === item.id ? apply(it, -delta) : it));
+      saveMine(mine);
+      show('반응 저장에 실패했습니다. 다시 눌러 주세요.', 'error');
+    } else if (data && left <= 0) {
+      const reactions = data as Record<string, number>;
+      setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, reactions, likes: totalReactions(reactions) } : it));
     }
   }
 
@@ -1259,29 +1385,30 @@ function JoinScreen({ boardId }: { boardId: string }) {
       {/* 내 이름 선택·손들기 + 보드 현황 */}
       <section className="join-gallery-section">
         <div className="my-names-panel">
-          <div className="my-names-title">내 이름/별명 선택 <span className="my-names-hint">체크한 이름으로 손을 들고, 내 카드를 관리합니다</span></div>
-          {boardNames.length > 0 ? (
+          <div className="my-names-title">내 이름/별명 <span className="my-names-hint">내가 올린 이름만 나옵니다. 체크한 이름으로 손을 듭니다</span></div>
+          {ownNames.length > 0 ? (
             <div className="my-names-list">
-              {boardNames.map((n) => (
-                <label key={n} className={`my-names-chip ${myNames.includes(n) ? 'my-names-chip--active' : ''}`}>
-                  <input
-                    type="checkbox"
-                    checked={myNames.includes(n)}
-                    onChange={(e) => {
-                      const updated = e.target.checked
-                        ? [...myNames, n]
-                        : myNames.filter((x) => x !== n);
-                      setMyNames(updated);
-                      localStorage.setItem(`my-names-${boardId}`, JSON.stringify(updated));
-                    }}
-                    style={{ display: 'none' }}
-                  />
-                  {myNames.includes(n) ? '✓ ' : ''}{n}
-                </label>
-              ))}
+              {ownNames.map((n) => {
+                const on = !handOff.includes(n);
+                return (
+                  <label key={n} className={`my-names-chip ${on ? 'my-names-chip--active' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={(e) => {
+                        const updated = e.target.checked ? handOff.filter((x) => x !== n) : [...handOff, n];
+                        setHandOff(updated);
+                        localStorage.setItem(`hand-off-${boardId}`, JSON.stringify(updated));
+                      }}
+                      style={{ display: 'none' }}
+                    />
+                    {on ? '✓ ' : ''}{n}
+                  </label>
+                );
+              })}
             </div>
           ) : (
-            <p className="my-names-empty">아직 보드에 올라온 이름이 없습니다. 위에 입력한 이름으로 손을 듭니다.</p>
+            <p className="my-names-empty">아직 이 기기에서 올린 카드가 없습니다. 위에 입력한 이름으로 손을 듭니다.</p>
           )}
           <button className="hand-raise-btn hand-raise-btn--wide" onClick={raiseHand} disabled={handCooling}>
             <span>✋</span> {handCooling ? '손 들었습니다!' : handNames.length > 0 ? `${handNames.join(', ')} 손 들기` : '손 들기'}
@@ -1291,9 +1418,7 @@ function JoinScreen({ boardId }: { boardId: string }) {
           <div className="join-gallery-title">보드 현황 <span>{items.length}개</span></div>
           <div className="join-gallery">
             {[...items].reverse().map((item) => {
-              const isMyCard = myNames.length > 0
-                ? myNames.includes(item.uploader_name || '')
-                : item.uploader_name === (name.trim() || localStorage.getItem('saenggak-name'));
+              const isMyCard = isMine(item);
               return (
                 <div
                   key={item.id}
@@ -1313,13 +1438,25 @@ function JoinScreen({ boardId }: { boardId: string }) {
                   <img src={item.image_url} alt={item.uploader_name || ''} loading="lazy" />
                   <div className="join-thumb-footer">
                     <span className="join-thumb-name">{item.uploader_name || '참여자'}</span>
-                    <button
-                      className={`like-btn ${likedItems.has(item.id) ? 'like-btn--active' : ''}`}
-                      onClick={(e) => { e.stopPropagation(); toggleLike(item); }}
-                      aria-label="좋아요"
-                    >
-                      {likedItems.has(item.id) ? '❤️' : '🤍'} {item.likes || 0}
-                    </button>
+                  </div>
+                  <div className="react-bar" role="group" aria-label="반응 남기기">
+                    {REACTIONS.map((x) => {
+                      const on = (myReacts[item.id] || []).includes(x.kind);
+                      const n = item.reactions?.[x.kind] || 0;
+                      return (
+                        <button
+                          key={x.kind}
+                          className={`react-btn${on ? ' is-on' : ''}`}
+                          aria-label={x.label}
+                          aria-pressed={on}
+                          title={x.label}
+                          onClick={(e) => { e.stopPropagation(); toggleReaction(item, x.kind); }}
+                        >
+                          <span>{x.emoji}</span>
+                          {n > 0 && <b>{n}</b>}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               );
@@ -1328,6 +1465,14 @@ function JoinScreen({ boardId }: { boardId: string }) {
         </>)}
       </section>
 
+      {poke && (
+        <button key={poke.id} className="poke-overlay" onClick={() => setPoke(null)}>
+          <span className="poke-bell">🔔</span>
+          <strong>{poke.name}님!</strong>
+          <span>진행자가 부르고 있어요</span>
+          <small>화면을 누르면 닫힙니다</small>
+        </button>
+      )}
       <Toast toast={toast} />
       {drawOpen && <DrawingModal onClose={() => setDrawOpen(false)} onSave={(dataUrl) => saveItem('drawing', dataUrlToBlob(dataUrl), 'png')} />}
       {textOpen && <TextModal onClose={() => setTextOpen(false)} onSave={handleTextSave} busy={busy} />}
@@ -1495,7 +1640,7 @@ function DrawingModal({ onClose, onSave }: { onClose: () => void; onSave: (dataU
 }
 
 // ── ImageModal ────────────────────────────────────────────
-function ImageModal({ item, onClose }: { item: BoardItem; onClose: () => void }) {
+function ImageModal({ item, onClose, onPoke }: { item: BoardItem; onClose: () => void; onPoke?: () => void }) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handler);
@@ -1508,8 +1653,15 @@ function ImageModal({ item, onClose }: { item: BoardItem; onClose: () => void })
         <p>
           <strong>{item.uploader_name || '참여자'}</strong>
           {item.caption ? ` · ${item.caption}` : ''}
-          {(item.likes || 0) > 0 && <span style={{ marginLeft: 12 }}>❤️ {item.likes}</span>}
+          {REACTIONS.filter((x) => (item.reactions?.[x.kind] || 0) > 0).map((x) => (
+            <span key={x.kind} style={{ marginLeft: 12 }}>{x.emoji} {item.reactions![x.kind]}</span>
+          ))}
         </p>
+        {onPoke && (
+          <button className="raffle-btn image-poke-btn" onClick={(e) => { e.stopPropagation(); onPoke(); }}>
+            🔔 {item.uploader_name || '참여자'}님에게 신호 보내기
+          </button>
+        )}
         <span>다시 클릭하면 보드로 돌아갑니다.</span>
       </div>
     </div>
