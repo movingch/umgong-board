@@ -131,7 +131,7 @@ export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose }: {
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  useEffect(() => () => timers.current.forEach((t) => clearTimeout(t)), []);
+  useEffect(() => () => { timers.current.forEach((t) => clearTimeout(t)); sfx.stopDisco(); }, []);
 
   function start() {
     setWinner('');
@@ -139,12 +139,13 @@ export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose }: {
     [3, 2, 1].forEach((n, i) => {
       timers.current.push(window.setTimeout(() => { setCount(n); sfx.beep(false); }, i * 700));
     });
-    timers.current.push(window.setTimeout(() => { setCount(0); sfx.beep(true); setPhase('racing'); }, 2100));
+    timers.current.push(window.setTimeout(() => { setCount(0); sfx.beep(true); setPhase('racing'); sfx.startDisco(); }, 2100));
   }
 
   function again() {
     timers.current.forEach((t) => clearTimeout(t));
     timers.current = [];
+    sfx.stopDisco();
     setWinner('');
     setPhase('ready');
     setRound((r) => r + 1);
@@ -178,6 +179,7 @@ export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose }: {
       if (decided) return;
       decided = true;
       decideTimer = window.setTimeout(() => {
+        sfx.stopDisco();
         setWinner(m.name);
         setPhase('done');
         sfx.bravo();
