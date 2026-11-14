@@ -790,7 +790,7 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
     window.setTimeout(() => setShakingId(null), 900);
     if (!channelRef.current) { show('데모 모드에서는 신호가 전송되지 않습니다.', 'error'); return; }
     const res = await channelRef.current.send({ type: 'broadcast', event: 'poke', payload: { itemId: item.id, name: target } });
-    show(res === 'ok' ? `🔔 ${target}님에게 신호를 보냈습니다.` : '신호 전송에 실패했습니다. 다시 눌러 주세요.', res === 'ok' ? 'success' : 'error');
+    show(res === 'ok' ? `👏 ${target}님에게 칭찬을 보냈습니다.` : '신호 전송에 실패했습니다. 다시 눌러 주세요.', res === 'ok' ? 'success' : 'error');
   }
 
   function startTimer(total: number) {
@@ -971,10 +971,10 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
               ))}
               <button
                 className="poke-btn"
-                aria-label={`${item.uploader_name || '참여자'}님에게 신호 보내기`}
-                title="이 참여자에게 신호 보내기"
+                aria-label={`${item.uploader_name || '참여자'}님에게 칭찬 보내기`}
+                title="이 참여자에게 칭찬 보내기"
                 onClick={(e) => { e.stopPropagation(); pokeItem(item); }}
-              >🔔</button>
+              >👏</button>
               {isOwner && (
                 <button className="delete-btn" aria-label="항목 삭제" onClick={(e) => { e.stopPropagation(); removeItem(item.id); }}>×</button>
               )}
@@ -1467,9 +1467,9 @@ function JoinScreen({ boardId }: { boardId: string }) {
 
       {poke && (
         <button key={poke.id} className="poke-overlay" onClick={() => setPoke(null)}>
-          <span className="poke-bell">🔔</span>
+          <span className="poke-bell">👏</span>
           <strong>{poke.name}님!</strong>
-          <span>진행자가 부르고 있어요</span>
+          <span>너무 좋아요! 잘했어요!</span>
           <small>화면을 누르면 닫힙니다</small>
         </button>
       )}
@@ -1659,7 +1659,7 @@ function ImageModal({ item, onClose, onPoke }: { item: BoardItem; onClose: () =>
         </p>
         {onPoke && (
           <button className="raffle-btn image-poke-btn" onClick={(e) => { e.stopPropagation(); onPoke(); }}>
-            🔔 {item.uploader_name || '참여자'}님에게 신호 보내기
+            👏 {item.uploader_name || '참여자'}님에게 칭찬 보내기
           </button>
         )}
         <span>다시 클릭하면 보드로 돌아갑니다.</span>
