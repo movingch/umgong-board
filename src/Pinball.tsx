@@ -162,16 +162,19 @@ function spawnMarbles(names: string[]): Marble[] {
   return shuffle(marbles);
 }
 
-export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose }: {
+export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose, onPostRanking }: {
   names: string[];
   title?: string;
   onClose: () => void;
+  onPostRanking?: (order: string[]) => Promise<boolean>;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [pool] = useState(() => names.slice(0, 100));
   const [phase, setPhaseState] = useState<Phase>('ready');
   const [count, setCount] = useState(0);
   const [winner, setWinner] = useState('');
+  const [order, setOrder] = useState<string[]>([]);
+  const [postState, setPostState] = useState<'idle' | 'posting' | 'posted'>('idle');
   const [mode, setMode] = useState<Mode>('first');
   const [round, setRound] = useState(0);
   const [ranking, setRanking] = useState<RankRow[]>([]);
@@ -192,6 +195,8 @@ export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose }: {
 
   function start() {
     setWinner('');
+    setOrder([]);
+    setPostState('idle');
     setBanner(null);
     setPhase('countdown');
     [3, 2, 1].forEach((n, i) => {
@@ -205,6 +210,8 @@ export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose }: {
     timers.current = [];
     sfx.stopDisco();
     setWinner('');
+    setOrder([]);
+    setPostState('idle');
     setBanner(null);
     setPhase('ready');
     setRound((r) => r + 1);
@@ -269,13 +276,16 @@ export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose }: {
     const gateOpen = () => (raceT % GATE_CYCLE) < GATE_OPEN;
     const placeOf = (m: Marble) => marbles.reduce((n, o) => n + (!o.rank && o.y > m.y ? 1 : 0), 0);
 
-    const decide = (m: Marble) => {
+    // 전원이 도착하면 경주를 끝내고 도착 순서를 확정한다
+    const finishRace = () => {
       if (decided) return;
       decided = true;
       decideTimer = window.setTimeout(() => {
+        const ordered = [...marbles].sort((a, b) => a.rank - b.rank).map((m) => m.name);
         sfx.stopDisco();
         setBanner(null);
-        setWinner(m.name);
+        setOrder(ordered);
+        setWinner(ctl.current.mode === 'first' ? ordered[0] : ordered[ordered.length - 1]);
         setPhase('done');
         sfx.bravo();
       }, 800);
@@ -473,7 +483,11 @@ export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose }: {
         }
         if (m.y > GOAL_Y + R) {
           m.rank = ++finished;
-          if (ctl.current.mode === 'first' && finished === 1) decide(m);
+          if (finished === 1) { say(`🥇 1등 도착! ${m.name}`, 'lead'); sfx.lead(); }
+          else if (finished === 2) say(`🥈 2등 도착! ${m.name}`, 'lead');
+          else if (finished === 3) say(`🥉 3등 도착! ${m.name}`, 'lead');
+          else if (finished === total && total > 3) say(`🏁 마지막 도착! ${m.name}`, 'event');
+          if (finished === total) finishRace();
         }
       }
       // 구슬끼리 충돌
@@ -826,8 +840,11 @@ export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose }: {
       }
 
       if (live) {
-        if (mode === 'last' && active.length === 1) decide(active[0]);
-        if (raceT > 150) { const pick = mode === 'first' ? leader : trailer; if (pick) decide(pick); }
+        // 너무 오래 걸리면 남은 구슬은 현재 위치 순으로 순위를 매기고 끝낸다
+        if (raceT > 180) {
+          [...active].sort((a, b) => b.y - a.y).forEach((m) => { m.rank = ++finished; });
+          finishRace();
+        }
       }
       if (live && leader) {
         // 구간 이벤트
@@ -949,7 +966,7 @@ export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose }: {
         <button className="raffle-btn pinball-close" onClick={onClose}>닫기</button>
       </div>
 
-      <ol className="pinball-rank" aria-label="순위">
+      <ol className={`pinball-rank${phase === 'done' ? ' is-final' : ''}`} aria-label="순위">
         <li className="pinball-rank-head">순위 · 도착 {ranking.filter((r) => r.done).length}/{pool.length}</li>
         {ranking.map((r, i) => (
           <li key={r.id} className={`${r.done ? 'is-done' : ''}${phase === 'done' && r.name === winner ? ' is-winner' : ''}`}>
@@ -976,7 +993,7 @@ export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose }: {
         <div className="pinball-result">
           <div className="raffle-bravo">부라보!</div>
           <div className="raffle-card raffle-card--winner pinball-winner">{winner}</div>
-          <div className="raffle-sub">🎉 {mode === 'first' ? '가장 먼저 도착' : '끝까지 살아남음'} — 발표자로 선정!</div>
+          <div className="raffle-sub">🎉 {mode === 'first' ? '1등 도착' : '마지막 도착'} — 전원 도착! 왼쪽 순서대로 발표하세요</div>
           <Confetti />
         </div>
       )}
@@ -991,7 +1008,19 @@ export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose }: {
             <button className="raffle-btn raffle-btn--go" onClick={start}>구슬 굴리기!</button>
           </>
         )}
-        {phase === 'done' && <button className="raffle-btn raffle-btn--go" onClick={again}>다시 굴리기</button>}
+        {phase === 'done' && onPostRanking && (
+          <button
+            className="raffle-btn raffle-btn--go"
+            disabled={postState !== 'idle'}
+            onClick={async () => {
+              setPostState('posting');
+              setPostState((await onPostRanking(order)) ? 'posted' : 'idle');
+            }}
+          >
+            {postState === 'posted' ? '✅ 보드에 붙였습니다' : postState === 'posting' ? '붙이는 중…' : '📌 순위를 보드에 붙이기'}
+          </button>
+        )}
+        {phase === 'done' && <button className="raffle-btn" onClick={again}>다시 굴리기</button>}
       </div>
     </div>
   );

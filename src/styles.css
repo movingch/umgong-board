@@ -999,6 +999,8 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
 .pinball-rank-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 .pinball-rank-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pinball-rank li.is-done { color: rgba(255,255,255,.7); }
+.pinball-rank.is-final { width: min(300px, 46vw); font-size: 18px; bottom: 96px; max-height: none; }
+.pinball-rank.is-final li { padding: 6px 8px; }
 .pinball-rank li.is-winner { background: rgba(255,210,74,.25); color: #ffe27a; }
 @media (max-width: 760px) {
   .pinball-rank { width: 132px; font-size: 12px; bottom: auto; max-height: 38vh; }

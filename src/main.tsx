@@ -109,6 +109,49 @@ function textToImageBlob(text: string, uploaderName: string): Promise<Blob> {
   return new Promise((resolve) => { canvas.toBlob((blob) => resolve(blob!), 'image/png'); });
 }
 
+// 핀볼 도착 순위를 보드에 붙일 카드 이미지로 만든다
+const RANK_CARD_NAME = '🎱 핀볼 순위';
+function rankingToImageBlob(title: string, names: string[]): Promise<Blob> {
+  const W = 1200, H = 900;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#fffdf6'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#241914'; ctx.font = '900 52px ui-sans-serif, system-ui, sans-serif';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(title, 50, 62);
+  ctx.fillStyle = '#9b7a4d'; ctx.font = '600 26px ui-sans-serif, system-ui, sans-serif';
+  const stamp = new Date().toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  ctx.textAlign = 'right';
+  ctx.fillText(`${names.length}명 · ${stamp}`, W - 50, 66);
+  ctx.textAlign = 'left';
+  ctx.strokeStyle = '#e1c7a5'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(50, 112); ctx.lineTo(W - 50, 112); ctx.stroke();
+
+  const n = names.length;
+  const cols = n <= 10 ? 1 : n <= 24 ? 2 : n <= 45 ? 3 : 4;
+  const perCol = Math.ceil(n / cols);
+  const top = 140, rowH = Math.min(72, (H - top - 30) / perCol);
+  const colW = (W - 100) / cols;
+  const size = Math.min(46, rowH * 0.7);
+  const medals = ['🥇', '🥈', '🥉'];
+  names.forEach((name, i) => {
+    const col = Math.floor(i / perCol), row = i % perCol;
+    const x = 50 + col * colW, y = top + row * rowH + rowH / 2;
+    ctx.font = `900 ${size}px ui-sans-serif, system-ui, sans-serif`;
+    ctx.fillStyle = i < 3 ? '#b8751a' : '#9b7a4d';
+    const label = i < 3 ? medals[i] : `${i + 1}.`;
+    ctx.fillText(label, x, y);
+    ctx.fillStyle = '#241914';
+    ctx.font = `${i < 3 ? 900 : 700} ${size}px ui-sans-serif, system-ui, sans-serif`;
+    const nameX = x + size * 1.9, maxW = colW - size * 1.9 - 16;
+    let text = name;
+    while (text.length > 1 && ctx.measureText(text).width > maxW) text = `${text.slice(0, -2)}…`;
+    ctx.fillText(text, nameX, y);
+  });
+  return new Promise((resolve) => { canvas.toBlob((blob) => resolve(blob!), 'image/png'); });
+}
+
 async function uploadBlob(boardId: string, blob: Blob, ext: string) {
   if (!supabase) return URL.createObjectURL(blob);
   const path = `${boardId}/${Date.now()}-${uid()}.${ext}`;
@@ -614,7 +657,7 @@ function BoardScreen({ boardId, user, readOnly = false }: { boardId: string; use
       window.setTimeout(() => setDdaeng(0), 2800);
     },
   );
-  const uniqueNames = [...new Set(items.map((it) => it.uploader_name).filter(Boolean) as string[])];
+  const uniqueNames = [...new Set(items.map((it) => it.uploader_name).filter((n) => n && n !== RANK_CARD_NAME) as string[])];
   const roulette = useRoulette(uniqueNames);
   const handNames = hands.map((h) => h.name);
   // 연타한 만큼 이름표가 커진다. 인원이 많을 때는 서로 겹치지 않게 많이 누른 사람만 상대적으로 키운다
@@ -810,6 +853,34 @@ function BoardScreen({ boardId, user, readOnly = false }: { boardId: string; use
       localStorage.setItem(`demo-board-${boardId}`, JSON.stringify({ ...stored, notice }));
     }
     show(notice ? '공지를 전송했습니다.' : '공지를 삭제했습니다.', 'success');
+  }
+
+  // 핀볼 도착 순위를 카드로 만들어 보드에 붙인다
+  async function postRanking(order: string[], title: string): Promise<boolean> {
+    try {
+      const blob = await rankingToImageBlob('🎱 핀볼 추첨 순위', order);
+      const imageUrl = await uploadBlob(boardId, blob, 'png');
+      const item: BoardItem = {
+        id: uid(), board_id: boardId, type: 'text', image_url: imageUrl,
+        uploader_name: RANK_CARD_NAME,
+        caption: `${title} · ${order.slice(0, 3).join(' → ')}${order.length > 3 ? ' …' : ''}`,
+        rotate: randomRotate(), created_at: new Date().toISOString(), likes: 0, reactions: {},
+      };
+      if (!supabase) {
+        const list = JSON.parse(localStorage.getItem(`demo-items-${boardId}`) || '[]');
+        localStorage.setItem(`demo-items-${boardId}`, JSON.stringify([...list, item]));
+      } else {
+        const { error } = await supabase.from('board_items').insert(item);
+        if (error) throw error;
+        channelRef.current?.send({ type: 'broadcast', event: 'item-uploaded', payload: { itemId: item.id } });
+      }
+      setItems((prev) => prev.some((it) => it.id === item.id) ? prev : [...prev, item]);
+      show('📌 핀볼 순위를 보드에 붙였습니다.', 'success');
+      return true;
+    } catch (e) {
+      show(e instanceof Error ? e.message : '순위를 붙이지 못했습니다.', 'error');
+      return false;
+    }
   }
 
   // 카드 주인(참여자)의 화면에 신호를 보낸다
@@ -1104,6 +1175,7 @@ function BoardScreen({ boardId, user, readOnly = false }: { boardId: string; use
         <PinballModal
           names={pinball.names}
           title={pinball.title}
+          onPostRanking={(order) => postRanking(order, pinball.title)}
           onClose={() => { if (pinball.fromHands) setHands([]); setPinball(null); }}
         />
       )}
