@@ -501,6 +501,7 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
   const [sortByLikes, setSortByLikes] = useState(false);
   const [presenceCount, setPresenceCount] = useState(0);
   const [raisedHands, setRaisedHands] = useState<{ id: string; name: string }[]>([]);
+  const [shakingId, setShakingId] = useState<string | null>(null);
   const [showRoulette, setShowRoulette] = useState(false);
   const [noticeInput, setNoticeInput] = useState('');
   const [noticeEditing, setNoticeEditing] = useState(false);
@@ -574,6 +575,11 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'boards', filter: `id=eq.${boardId}` }, (payload) => {
         setBoard((prev) => prev ? { ...prev, ...(payload.new as Board) } : prev);
+      })
+      .on('broadcast', { event: 'shake-card' }, ({ payload }: any) => {
+        if (!payload?.itemId) return;
+        setShakingId(payload.itemId);
+        setTimeout(() => setShakingId(null), 900);
       })
       .subscribe();
 
@@ -742,7 +748,7 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
           <div className="empty-board">아직 붙은 그림이 없습니다. QR로 접속해서 첫 번째 생각을 붙여보세요.</div>
         ) : (
           sortedItems.map((item) => (
-            <article key={item.id} className="photo-note" style={{ transform: `rotate(${item.rotate}deg)` }} onClick={() => setSelected(item)}>
+            <article key={item.id} className={`photo-note${shakingId === item.id ? ' card-shaking' : ''}`} style={{ transform: `rotate(${item.rotate}deg)`, '--r': `${item.rotate}deg` } as React.CSSProperties} onClick={() => setSelected(item)}>
               <div className="tape" />
               <img src={item.image_url} alt={item.caption || '보드 이미지'} loading="lazy" crossOrigin="anonymous" />
               <div className="note-footer">
@@ -796,6 +802,7 @@ function JoinScreen({ boardId }: { boardId: string }) {
   const [board, setBoard] = useState<Board | null>(null);
   const [items, setItems] = useState<BoardItem[]>([]);
   const [handRaised, setHandRaised] = useState(false);
+  const broadcastRef = useRef<any>(null);
   const [likedItems, setLikedItems] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem(`liked-${boardId}`) || '[]')); }
     catch { return new Set(); }
@@ -828,6 +835,11 @@ function JoinScreen({ boardId }: { boardId: string }) {
   useEffect(() => {
     if (!supabase) return;
 
+    // Broadcast 채널 (카드 흔들기 신호용)
+    const broadcastChannel = supabase.channel(`board-${boardId}`);
+    broadcastRef.current = broadcastChannel;
+    broadcastChannel.subscribe();
+
     // Presence: 이 참여자를 등록
     const presenceChannel = supabase.channel(`presence-${boardId}`, { config: { presence: { key: participantId.current } } });
     presenceRef.current = presenceChannel;
@@ -857,8 +869,14 @@ function JoinScreen({ boardId }: { boardId: string }) {
     return () => {
       supabase?.removeChannel(channel);
       supabase?.removeChannel(presenceChannel);
+      supabase?.removeChannel(broadcastChannel);
     };
   }, [boardId]);
+
+  async function shakeMyCard(itemId: string) {
+    if (!broadcastRef.current) return;
+    await broadcastRef.current.send({ type: 'broadcast', event: 'shake-card', payload: { itemId } });
+  }
 
   async function toggleHandRaise() {
     const newState = !handRaised;
@@ -979,21 +997,31 @@ function JoinScreen({ boardId }: { boardId: string }) {
         <section className="join-gallery-section">
           <div className="join-gallery-title">보드 현황 <span>{items.length}개</span></div>
           <div className="join-gallery">
-            {[...items].reverse().map((item) => (
-              <div key={item.id} className="join-thumb">
-                <img src={item.image_url} alt={item.uploader_name || ''} loading="lazy" />
-                <div className="join-thumb-footer">
-                  <span className="join-thumb-name">{item.uploader_name || '참여자'}</span>
-                  <button
-                    className={`like-btn ${likedItems.has(item.id) ? 'like-btn--active' : ''}`}
-                    onClick={() => toggleLike(item)}
-                    aria-label="좋아요"
-                  >
-                    {likedItems.has(item.id) ? '❤️' : '🤍'} {item.likes || 0}
-                  </button>
+            {[...items].reverse().map((item) => {
+              const isMyCard = item.uploader_name === (name.trim() || localStorage.getItem('saenggak-name'));
+              return (
+                <div
+                  key={item.id}
+                  className={`join-thumb${isMyCard ? ' join-thumb--mine' : ''}`}
+                  onClick={isMyCard ? () => { shakeMyCard(item.id); show('📢 진행자 화면에서 흔들립니다!', 'success'); } : undefined}
+                  style={isMyCard ? { cursor: 'pointer' } : undefined}
+                  title={isMyCard ? '클릭하면 진행자 화면에서 흔들립니다!' : undefined}
+                >
+                  {isMyCard && <div className="my-card-badge">내 것 👆</div>}
+                  <img src={item.image_url} alt={item.uploader_name || ''} loading="lazy" />
+                  <div className="join-thumb-footer">
+                    <span className="join-thumb-name">{item.uploader_name || '참여자'}</span>
+                    <button
+                      className={`like-btn ${likedItems.has(item.id) ? 'like-btn--active' : ''}`}
+                      onClick={(e) => { e.stopPropagation(); toggleLike(item); }}
+                      aria-label="좋아요"
+                    >
+                      {likedItems.has(item.id) ? '❤️' : '🤍'} {item.likes || 0}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       )}
