@@ -5,13 +5,13 @@ import { Confetti } from './Confetti';
 const W = 600;
 const GOAL_Y = 4600;
 const FINAL_Y = 4360;
-const R = 11;
+const R = 14;
 const GRAVITY = 950;
 const MAX_SPEED = 1300;
 const STEP = 1 / 240;
 const BUCKET = 120;
 const GATE_CYCLE = 2.6;
-const GATE_OPEN = 1.0;
+const GATE_OPEN = 1.4;
 
 type Seg = { ax: number; ay: number; bx: number; by: number; kind?: 'gate' | 'timed' };
 type Peg = { x: number; y: number; r: number; bumper: boolean; flash: number };
@@ -61,8 +61,9 @@ function buildCourse() {
 
   // 1구간: 핀 숲
   for (let row = 0; row < 10; row++) {
-    const off = row % 2 ? 60 : 30;
-    for (let x = off; x <= W - 30; x += 60) peg(x, 360 + row * 56);
+    // 핀은 벽에서 구슬 하나가 지나갈 만큼 띄운다 (벽과 핀 사이에 구슬이 얹혀 멈추지 않게)
+    const off = row % 2 ? 90 : 60;
+    for (let x = off; x <= W - 60; x += 60) peg(x, 360 + row * 56);
   }
 
   // 2구간: 지그재그 경사로 (둘째 경사로는 가속 구간)
@@ -103,10 +104,10 @@ function buildCourse() {
   zones.push({ x: 400, y: 3215, w: 200, h: 290, kind: 'mud', ax: 0, ay: 0 });
   for (let row = 0; row < 5; row++) (row % 2 ? [300] : [250, 350]).forEach((x) => peg(x, 3250 + row * 60));
 
-  // 8구간: 바늘밭 (블랙홀 하나)
-  for (let row = 0; row < 8; row++) {
-    const off = row % 2 ? 50 : 25;
-    for (let x = off; x <= W - 25; x += 50) peg(x, 3620 + row * 52, 5);
+  // 8구간: 바늘밭 (블랙홀 하나) — 구슬 두 개가 나란히 지나갈 만큼 성기게, 벽에서도 띄운다
+  for (let row = 0; row < 6; row++) {
+    const off = row % 2 ? 100 : 60;
+    for (let x = off; x <= W - 60; x += 80) peg(x, 3620 + row * 66, 6);
   }
   seg(0, 4040, 190, 4110);
   seg(W, 4040, 410, 4110);
@@ -116,8 +117,8 @@ function buildCourse() {
   seg(W, 4180, 360, 4320);
   seg(240, 4336, 360, 4336, 'timed');
   spin(300, 4450, 90, -3.5);
-  seg(0, 4470, 255, 4570);
-  seg(W, 4470, 345, 4570);
+  seg(0, 4470, 240, 4570);
+  seg(W, 4470, 360, 4570);
 
   const buckets = new Map<number, Peg[]>();
   for (const p of pegs) {
@@ -145,7 +146,7 @@ function spawnMarbles(names: string[]): Marble[] {
   const rows = Math.max(1, Math.ceil(names.length / 13));
   const slots: { x: number; y: number }[] = [];
   for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < 13; col++) slots.push({ x: 60 + col * 40 + (row % 2 ? 12 : 0), y: 188 - row * 25 });
+    for (let col = 0; col < 13; col++) slots.push({ x: 60 + col * 40 + (row % 2 ? 12 : 0), y: 186 - row * 30 });
   }
   shuffle(slots);
   const marbles = names.map((name, i) => ({
@@ -531,8 +532,10 @@ export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose, onP
       g.fillRect(0, 0, cw, ch);
 
       const viewH = ch / s;
-      let ox = (cw - W * s) / 2;
-      if (W * s > cw) ox = Math.min(0, Math.max(cw - W * s, cw / 2 - focusX * s));
+      // 넓은 화면에서는 왼쪽 순위표에 가리지 않도록 경기장을 오른쪽으로 민다
+      const rankPad = cw > 900 ? 216 : 0;
+      let ox = rankPad + (cw - rankPad - 28 - W * s) / 2;
+      if (W * s > cw - rankPad - 28) ox = Math.min(rankPad, Math.max(cw - 28 - W * s, rankPad + (cw - rankPad - 28) / 2 - focusX * s));
       const top = camY - viewH / 2 - 60, bottom = camY + viewH / 2 + 60;
       const fieldTop = Math.max(0, top), fieldBottom = Math.min(GOAL_Y + 140, bottom);
 
@@ -748,7 +751,7 @@ export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose, onP
       }
 
       // 구슬
-      const fontPx = Math.max(13, 11 / s);
+      const fontPx = Math.max(17, 15 / s);
       g.font = `800 ${fontPx}px system-ui, sans-serif`;
       g.textAlign = 'center';
       g.lineJoin = 'round';
@@ -896,7 +899,7 @@ export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose, onP
       if (checkT > 2.5) {
         checkT = 0;
         for (const m of active) {
-          if (Math.abs(m.x - m.checkX) + Math.abs(m.y - m.checkY) < 8 && m.y < FINAL_Y - 60) {
+          if (Math.abs(m.x - m.checkX) + Math.abs(m.y - m.checkY) < 8) {
             m.vx += (Math.random() - 0.5) * 520;
             m.vy -= 300;
           }
