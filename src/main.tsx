@@ -7,6 +7,7 @@ import type { Board, BoardItem } from './types';
 import { sfx } from './sfx';
 import { Confetti } from './Confetti';
 import { PinballModal } from './Pinball';
+import { ensureBoardOgImage } from './ogImage';
 import './styles.css';
 
 const BUCKET = 'board-images';
@@ -619,6 +620,12 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
     load();
   }, [boardId]);
 
+  // 참여 링크 미리보기용 이미지(보드 제목 포함)를 보드마다 한 번 만들어 둔다
+  const boardTitle = board?.title;
+  useEffect(() => {
+    if (supabase && boardTitle && board?.created_at) void ensureBoardOgImage(supabase, BUCKET, boardId, boardTitle);
+  }, [boardId, boardTitle, board?.created_at]);
+
   // 새로 붙은 카드 강조 (처음 불러온 카드는 제외)
   useEffect(() => {
     if (!loaded) return;
@@ -763,7 +770,7 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
         <nav className="header-menu" aria-label="보드 메뉴">
           <a className="soft-btn" href={joinUrl} target="_blank" rel="noopener noreferrer">참여자 화면 열기</a>
           <button className="soft-btn" onClick={() => document.documentElement.requestFullscreen?.()}>전체화면</button>
-          <button className="soft-btn" onClick={() => navigator.clipboard.writeText(joinUrl).then(() => show('링크를 복사했습니다.', 'success'))}>참여 링크 복사</button>
+          <button className="soft-btn" onClick={() => navigator.clipboard.writeText(`${joinUrl}?s=2`).then(() => show('링크를 복사했습니다.', 'success'))}>참여 링크 복사</button>
           <button className={`soft-btn ${noticeEditing ? 'soft-btn--active' : ''}`} onClick={() => setNoticeEditing(!noticeEditing)}>
             {noticeEditing ? '✕ 공지 닫기' : '📢 공지'}
           </button>

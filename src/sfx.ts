@@ -106,8 +106,29 @@ function crowd(level = 1) {
   });
 }
 
+function noiseHit(type: BiquadFilterType, freq: number, peak: number, dur: number, toFreq?: number) {
+  const c = getCtx();
+  if (!c) return;
+  const t = c.currentTime;
+  const src = c.createBufferSource();
+  src.buffer = getNoise(c);
+  src.loop = true;
+  const f = c.createBiquadFilter();
+  f.type = type;
+  f.frequency.setValueAtTime(freq, t);
+  if (toFreq) f.frequency.exponentialRampToValueAtTime(toFreq, t + dur);
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(peak, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(f).connect(g).connect(c.destination);
+  src.start(t, Math.random());
+  src.stop(t + dur + 0.05);
+}
+
 // ── 디스코 비트 (핀볼 배경 음악) ──────────────────────────
 let discoTimer = 0;
+let discoSixteenth = 60 / 124 / 4;
 let discoBus: GainNode | null = null;
 
 function stopDisco() {
@@ -171,7 +192,7 @@ function startDisco() {
     o.stop(t + dur + 0.02);
   };
 
-  const sixteenth = 60 / 124 / 4;
+  discoSixteenth = 60 / 124 / 4;
   // 한 마디씩 Am – Am – F – G
   const roots = [55, 55, 43.65, 49];
   const thirds = [1.189, 1.189, 1.26, 1.26];
@@ -190,8 +211,8 @@ function startDisco() {
     if (s % 2 === 0) {
       const f = s % 4 === 0 ? root : root * 2;
       const lift = s === 14 ? 1.122 : 1;
-      voice(t, 'sawtooth', f * lift, 0.55, sixteenth * 1.8, 420);
-      voice(t, 'sine', f * lift, 0.6, sixteenth * 1.8);
+      voice(t, 'sawtooth', f * lift, 0.55, discoSixteenth * 1.8, 420);
+      voice(t, 'sine', f * lift, 0.6, discoSixteenth * 1.8);
     }
     if (s === 6 || s === 14) {
       [1, thirds[bar], 1.498].forEach((r) => voice(t, 'triangle', root * 8 * r, 0.05, 0.14));
@@ -201,7 +222,7 @@ function startDisco() {
   const schedule = () => {
     while (nextT < c.currentTime + 0.25) {
       playStep(step, nextT);
-      nextT += sixteenth;
+      nextT += discoSixteenth;
       step++;
     }
   };
@@ -254,6 +275,31 @@ export const sfx = {
   },
   startDisco,
   stopDisco,
+  setDiscoBpm(bpm: number) { discoSixteenth = 60 / bpm / 4; },
+  // 핀볼 이벤트 효과음
+  lead() {
+    [659.25, 880, 1318.5].forEach((f, i) => tone(f, { at: i * 0.07, dur: 0.16, type: 'square', gain: 0.09 }));
+    crowd(0.22);
+  },
+  thunder() {
+    noiseHit('highpass', 3000, 0.7, 0.18);
+    noiseHit('lowpass', 900, 0.9, 1.3, 90);
+    tone(70, { dur: 1.1, type: 'sine', gain: 0.5, to: 32 });
+  },
+  boom() {
+    noiseHit('lowpass', 1400, 1, 0.9, 70);
+    tone(110, { dur: 0.8, type: 'sine', gain: 0.6, to: 30 });
+  },
+  wind() {
+    noiseHit('bandpass', 400, 0.5, 2.4, 1800);
+  },
+  warp() {
+    tone(1200, { dur: 0.45, type: 'sawtooth', gain: 0.1, to: 90 });
+  },
+  gate() {
+    tone(1568, { dur: 0.25, type: 'triangle', gain: 0.16 });
+    tone(2093, { at: 0.08, dur: 0.3, type: 'triangle', gain: 0.14 });
+  },
   bump() {
     tone(190, { to: 560, dur: 0.11, type: 'square', gain: 0.07 });
   },

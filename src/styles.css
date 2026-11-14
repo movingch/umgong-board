@@ -999,6 +999,31 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
 @media (max-width: 760px) {
   .pinball-rank { width: 132px; font-size: 12px; bottom: auto; max-height: 38vh; }
 }
+.pinball-rank-up { color: #5dffb0; font-size: .85em; }
+.pinball-rank-down { color: #ff7b8a; font-size: .85em; }
+.pinball-banner {
+  position: absolute; left: 50%; top: clamp(64px, 11vh, 110px); z-index: 1240;
+  transform: translateX(-50%);
+  max-width: 90vw; padding: .35em .9em;
+  border-radius: 999px;
+  font-size: clamp(1.3rem, 3.6vw, 3rem); font-weight: 900; letter-spacing: -.03em; white-space: nowrap;
+  color: #fff; text-shadow: 0 3px 14px rgba(0,0,0,.6);
+  background: linear-gradient(90deg, rgba(255,90,40,.92), rgba(255,170,30,.92));
+  box-shadow: 0 14px 44px rgba(0,0,0,.5), 0 0 40px rgba(255,150,40,.55);
+  pointer-events: none;
+  animation: bannerPunch 2.2s cubic-bezier(.2,1.4,.4,1) both;
+}
+.pinball-banner--event { background: linear-gradient(90deg, rgba(60,120,255,.92), rgba(150,80,255,.92)); box-shadow: 0 14px 44px rgba(0,0,0,.5), 0 0 40px rgba(120,100,255,.55); }
+.pinball-banner--warn { background: linear-gradient(90deg, rgba(230,30,70,.94), rgba(255,90,40,.94)); box-shadow: 0 14px 44px rgba(0,0,0,.5), 0 0 46px rgba(255,50,70,.6); }
+@keyframes bannerPunch {
+  0%   { opacity: 0; transform: translateX(-50%) scale(2.2) rotate(-4deg); }
+  12%  { opacity: 1; transform: translateX(-50%) scale(.94) rotate(1deg); }
+  20%  { transform: translateX(-50%) scale(1.04); }
+  28%  { transform: translateX(-50%) scale(1); }
+  80%  { opacity: 1; transform: translateX(-50%) scale(1); }
+  100% { opacity: 0; transform: translateX(-50%) scale(.9) translateY(-14px); }
+}
+@media (max-width: 760px) { .pinball-banner { white-space: normal; text-align: center; border-radius: 22px; } }
 .pinball-winner { font-size: clamp(2.6rem, 10vw, 8rem); min-width: min(64vw, 460px); }
 
 /* ══════════════════════════════════════════════════════════
@@ -1493,6 +1518,7 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
   @keyframes popIn { from { opacity: 0; } to { opacity: 1; } }
   @keyframes modalIn { from { opacity: 0; } to { opacity: 1; } }
   .raffle-spot, .countdown-overlay, .hand-name-emoji, .raffle-bravo, .raffle-card--winner { animation: none !important; }
+  .pinball-banner { animation: fadeIn .2s ease both; }
   .raffle-card--tick, .photo-note--new { animation: fadeIn .15s ease both; }
   .countdown-number { animation-name: reducedShow; }
   .ddaeng-overlay span, .hand-float, .hand-float-inner { animation: none !important; }
