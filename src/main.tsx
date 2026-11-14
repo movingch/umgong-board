@@ -180,7 +180,7 @@ function Toast({ toast }: { toast: { msg: string; type: 'success' | 'error' } | 
 }
 
 // ── 손든 이름 (진행자 화면에 떠다니는 이름표) ─────────────
-type FloatingHand = { id: number; name: string; x: number; y: number; fx: number; fy: number; dx: number; dy: number; rot: number; dur: number };
+type FloatingHand = { id: number; name: string; x: number; y: number; fx: number; fy: number; dx: number; dy: number; rot: number; dur: number; count: number };
 
 function makeFloatingHand(seq: number, name: string): FloatingHand {
   // R2 저불일치 수열로 자리를 잡아 인원이 많아도 화면에 고르게 퍼진다
@@ -198,6 +198,7 @@ function makeFloatingHand(seq: number, name: string): FloatingHand {
     dy: sign() * (2 + Math.random() * 6),
     rot: sign() * (2 + Math.random() * 6),
     dur: 2.2 + Math.random() * 2.6,
+    count: 1,
   };
 }
 
@@ -583,6 +584,7 @@ function BoardScreen({ boardId, user, readOnly = false }: { boardId: string; use
   const [hands, setHands] = useState<FloatingHand[]>([]);
   const handSeq = useRef(0);
   const handClearTimer = useRef<number>(0);
+  const lastHandSound = useRef(0);
   const [handPickOpen, setHandPickOpen] = useState(false);
   const [emojiBursts, setEmojiBursts] = useState<{ id: number; itemId: string; emoji: string; dx: number }[]>([]);
   const prevReacts = useRef<Map<string, Record<string, number>> | null>(null);
@@ -612,6 +614,12 @@ function BoardScreen({ boardId, user, readOnly = false }: { boardId: string; use
   const uniqueNames = [...new Set(items.map((it) => it.uploader_name).filter(Boolean) as string[])];
   const roulette = useRoulette(uniqueNames);
   const handNames = hands.map((h) => h.name);
+  // 연타한 만큼 이름표가 커진다. 인원이 많을 때는 서로 겹치지 않게 많이 누른 사람만 상대적으로 키운다
+  const handMax = Math.max(1, ...hands.map((h) => h.count));
+  const handMin = Math.min(...hands.map((h) => h.count), handMax);
+  const handScale = (count: number) => hands.length >= 6
+    ? 1 + 0.4 * (handMax > handMin ? (count - handMin) / (handMax - handMin) : 0)
+    : Math.min(1.7, 1 + (count - 1) * 0.03);
   const handRoulette = useRoulette(handNames);
   const { toast, show } = useToast();
   const joinUrl = `${getBaseUrl()}/join/${boardId}`;
@@ -730,11 +738,24 @@ function BoardScreen({ boardId, user, readOnly = false }: { boardId: string; use
         syncAll();
       })
       .on('broadcast', { event: 'hand-raised' }, ({ payload }: any) => {
-        if (!payload?.name) return;
-        const hand = makeFloatingHand(++handSeq.current, String(payload.name).slice(0, 30));
-        sfx.hand();
-        // 같은 이름이 다시 들면 새로 날아오게 교체한다
-        setHands((prev) => [...prev.filter((h) => h.name !== hand.name), hand].slice(-100));
+        const names: string[] = (Array.isArray(payload?.names) ? payload.names : [payload?.name])
+          .filter(Boolean).slice(0, 10).map((n: unknown) => String(n).slice(0, 30));
+        if (names.length === 0) return;
+        const n = Math.min(30, Math.max(1, Number(payload?.n) || 1));
+        const now = performance.now();
+        if (now - lastHandSound.current > 90) { sfx.hand(); lastHandSound.current = now; }
+        const fresh = names.map((name) => ({ ...makeFloatingHand(++handSeq.current, name), count: n }));
+        // 이미 떠 있는 이름은 자리를 지키고 횟수만 올라간다 (연타할수록 커진다)
+        setHands((prev) => {
+          let next = prev;
+          names.forEach((name, i) => {
+            const existing = next.find((h) => h.name === name);
+            next = existing
+              ? next.map((h) => h === existing ? { ...h, count: h.count + n } : h)
+              : [...next, fresh[i]];
+          });
+          return next.slice(-100);
+        });
         window.clearTimeout(handClearTimer.current);
         handClearTimer.current = window.setTimeout(() => setHands([]), readOnly ? 8000 : 90000);
       })
@@ -1039,8 +1060,11 @@ function BoardScreen({ boardId, user, readOnly = false }: { boardId: string; use
                 className="hand-float-inner"
                 style={{ '--dx': `${h.dx}vw`, '--dy': `${h.dy}vh`, '--rot': `${h.rot}deg`, animationDuration: `${h.dur}s` } as React.CSSProperties}
               >
-                <span className="hand-name-emoji">✋</span>
-                <span className="hand-name-text">{h.name}</span>
+                <span key={h.count} className="hand-pulse" style={{ fontSize: `${handScale(h.count).toFixed(2)}em` }}>
+                  <span className="hand-name-emoji">✋</span>
+                  <span className="hand-name-text">{h.name}</span>
+                  {h.count > 1 && <b className="hand-count">×{h.count}</b>}
+                </span>
               </div>
             </div>
           ))}
@@ -1103,7 +1127,10 @@ function JoinScreen({ boardId }: { boardId: string }) {
   const [board, setBoard] = useState<Board | null>(null);
   const [items, setItems] = useState<BoardItem[]>([]);
   const broadcastRef = useRef<any>(null);
-  const [handCooling, setHandCooling] = useState(false);
+  const [handCount, setHandCount] = useState(0);
+  const handQueue = useRef(0);
+  const handTimer = useRef<number>(0);
+  const handNamesRef = useRef<string[]>([]);
   // 이 기기에서 직접 제출한 카드만 '내 것'으로 다룬다 (남의 이름을 골라 조작할 수 없게)
   const [own, setOwn] = useState<{ ids: string[]; legacyName: string; since: string }>(() => {
     try {
@@ -1275,31 +1302,32 @@ function JoinScreen({ boardId }: { boardId: string }) {
   const ownNames = [...new Set(items.filter(isMine).map((it) => it.uploader_name).filter(Boolean) as string[])];
   const checkedNames = ownNames.filter((n) => !handOff.includes(n));
   const handNames = checkedNames.length > 0 ? checkedNames : name.trim() ? [name.trim()] : [];
+  handNamesRef.current = handNames;
 
   async function shakeMyCard(itemId: string) {
     if (!broadcastRef.current) return;
     await broadcastRef.current.send({ type: 'broadcast', event: 'shake-card', payload: { itemId } });
   }
 
-  async function raiseHand() {
-    if (handCooling) return;
+  // 연타 가능: 버튼은 누를 때마다 바로 반응하고, 전송은 0.7초 단위로 횟수를 묶어 보낸다
+  function raiseHand() {
     if (handNames.length === 0) { show('먼저 이름 또는 별명을 선택하거나 입력해 주세요.', 'error'); return; }
     const ch = broadcastRef.current;
     if (!ch) { show('데모 모드에서는 손들기가 전송되지 않습니다.', 'error'); return; }
-    setHandCooling(true);
-    window.setTimeout(() => setHandCooling(false), 3000);
-    const sendOne = (n: string) => ch.send({ type: 'broadcast', event: 'hand-raised', payload: { name: n } });
-    let failed = false;
-    for (const n of handNames) {
-      let res = await sendOne(n);
-      if (res !== 'ok') {
-        await new Promise((r) => setTimeout(r, 400));
-        res = await sendOne(n);
-      }
-      if (res !== 'ok') failed = true;
-    }
-    if (failed) show('손들기 전송에 실패했습니다. 다시 눌러 주세요.', 'error');
-    else show(`✋ ${handNames.join(', ')} — 진행자 화면에 나타납니다!`, 'success');
+    setHandCount((c) => c + 1);
+    navigator.vibrate?.(12);
+    handQueue.current++;
+    if (handTimer.current) return;
+    const flush = () => {
+      const n = handQueue.current;
+      handQueue.current = 0;
+      if (n === 0) { handTimer.current = 0; return; }
+      const names = handNamesRef.current;
+      void ch.send({ type: 'broadcast', event: 'hand-raised', payload: { names, name: names[0], n } })
+        .then((res: string) => { if (res !== 'ok') show('손들기 전송에 실패했습니다. 다시 눌러 주세요.', 'error'); });
+      handTimer.current = window.setTimeout(flush, 700);
+    };
+    flush();
   }
 
   function requireName() {
@@ -1484,8 +1512,9 @@ function JoinScreen({ boardId }: { boardId: string }) {
           ) : (
             <p className="my-names-empty">아직 이 기기에서 올린 카드가 없습니다. 위에 입력한 이름으로 손을 듭니다.</p>
           )}
-          <button className="hand-raise-btn hand-raise-btn--wide" onClick={raiseHand} disabled={handCooling}>
-            <span>✋</span> {handCooling ? '손 들었습니다!' : handNames.length > 0 ? `${handNames.join(', ')} 손 들기` : '손 들기'}
+          <button className="hand-raise-btn hand-raise-btn--wide" onClick={raiseHand}>
+            <span key={handCount} className={handCount > 0 ? 'hand-tap' : ''}>✋</span> {handNames.length > 0 ? `${handNames.join(', ')} 손 들기` : '손 들기'}
+            {handCount > 0 && <b className="hand-tap-count">×{handCount}</b>}
           </button>
         </div>
         {items.length > 0 && (<>

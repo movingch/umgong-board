@@ -1469,6 +1469,9 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
   from { transform: translate(0, 0) rotate(0deg); }
   to   { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); }
 }
+.hand-pulse { display: inline-flex; align-items: center; gap: .3em; animation: handBump .32s cubic-bezier(.3,1.9,.5,1) both; }
+@keyframes handBump { 0% { transform: scale(1.45) rotate(-6deg); } 100% { transform: scale(1) rotate(0); } }
+.hand-count { color: #ffd24a; font-weight: 900; font-size: .7em; }
 .hand-bar {
   position: absolute;
   left: 50%;
@@ -1560,7 +1563,10 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
 .field-required { color: #c0392b; font-weight: 800; }
 .my-names-empty { margin: 0; font-size: 13px; color: var(--muted); }
 .hand-raise-btn--wide { width: 100%; margin-top: 12px; min-height: 52px; font-size: 16px; justify-content: center; }
-.hand-raise-btn:disabled { opacity: .6; cursor: default; }
+.hand-raise-btn { touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+.hand-tap { display: inline-block; animation: handTap .25s cubic-bezier(.3,1.9,.5,1) both; }
+@keyframes handTap { 0% { transform: scale(1.9) rotate(-18deg); } 100% { transform: scale(1) rotate(0); } }
+.hand-tap-count { color: var(--cork-dark); font-size: .85em; }
 
 /* ══════════════════════════════════════════════════════════
    반응형
