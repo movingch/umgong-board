@@ -368,6 +368,10 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
 }
 .header-menu .soft-btn { padding: 9px 14px; font-size: 13px; white-space: nowrap; }
 
+.header-menu--view { grid-template-columns: auto; }
+.soft-btn--cheer { background: linear-gradient(180deg, #ffd24a, #f0a01c); border-color: #ffe08a; color: #3a2204; }
+.soft-btn--cheer:disabled { opacity: .55; }
+
 /* 접속자 뱃지 */
 .presence-badge {
   display: inline-flex;

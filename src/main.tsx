@@ -330,6 +330,10 @@ function App() {
     if (!UUID_RE.test(route.boardId)) return <div className="error-page">잘못된 보드 주소입니다.</div>;
     return <BoardScreen boardId={route.boardId} user={user} />;
   }
+  if (route.mode === 'view' && route.boardId) {
+    if (!UUID_RE.test(route.boardId)) return <div className="error-page">잘못된 보드 주소입니다.</div>;
+    return <BoardScreen boardId={route.boardId} user={user} readOnly />;
+  }
   if (route.mode === 'join' && route.boardId) {
     if (!UUID_RE.test(route.boardId)) return <div className="error-page">잘못된 보드 주소입니다.</div>;
     return <JoinScreen boardId={route.boardId} />;
@@ -569,7 +573,7 @@ function LoginScreen({ onGuest }: { onGuest: () => void }) {
 }
 
 // ── BoardScreen (진행자) ──────────────────────────────────
-function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) {
+function BoardScreen({ boardId, user, readOnly = false }: { boardId: string; user: User | null; readOnly?: boolean }) {
   const [board, setBoard] = useState<Board | null>(null);
   const [items, setItems] = useState<BoardItem[]>([]);
   const [selected, setSelected] = useState<BoardItem | null>(null);
@@ -583,6 +587,7 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
   const [emojiBursts, setEmojiBursts] = useState<{ id: number; itemId: string; emoji: string; dx: number }[]>([]);
   const prevReacts = useRef<Map<string, Record<string, number>> | null>(null);
   const burstSeq = useRef(0);
+  const [cheerCooling, setCheerCooling] = useState(false);
   const [pinball, setPinball] = useState<{ names: string[]; title: string; fromHands: boolean } | null>(null);
   const [showRoulette, setShowRoulette] = useState(false);
   const [noticeInput, setNoticeInput] = useState('');
@@ -731,7 +736,7 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
         // 같은 이름이 다시 들면 새로 날아오게 교체한다
         setHands((prev) => [...prev.filter((h) => h.name !== hand.name), hand].slice(-100));
         window.clearTimeout(handClearTimer.current);
-        handClearTimer.current = window.setTimeout(() => setHands([]), 90000);
+        handClearTimer.current = window.setTimeout(() => setHands([]), readOnly ? 8000 : 90000);
       })
       .subscribe();
     channelRef.current = channel;
@@ -793,6 +798,16 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
     show(res === 'ok' ? `👏 ${target}님에게 칭찬을 보냈습니다.` : '신호 전송에 실패했습니다. 다시 눌러 주세요.', res === 'ok' ? 'success' : 'error');
   }
 
+  // 접속해 있는 참여자 전원에게 응원을 보낸다
+  async function cheerAll() {
+    if (cheerCooling) return;
+    if (!channelRef.current) { show('데모 모드에서는 응원이 전송되지 않습니다.', 'error'); return; }
+    setCheerCooling(true);
+    window.setTimeout(() => setCheerCooling(false), 3000);
+    const res = await channelRef.current.send({ type: 'broadcast', event: 'cheer-all', payload: { text: '자! 힘을 내세요!' } });
+    show(res === 'ok' ? '💪 참여자 전원에게 응원을 보냈습니다.' : '응원 전송에 실패했습니다. 다시 눌러 주세요.', res === 'ok' ? 'success' : 'error');
+  }
+
   function startTimer(total: number) {
     if (total <= 0) { show('시간을 1초 이상으로 설정해 주세요.', 'error'); return; }
     timer.start(Math.min(total, 180 * 60));
@@ -813,8 +828,13 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
         <div className="board-heading">
           <div className="brand small">생각보드</div>
           <h1>{board?.title || '생각보드'}</h1>
-          <p>참여자는 스마트폰으로 그리고 올립니다. 진행자는 이 화면을 빔프로젝터에 띄우세요.</p>
+          <p>{readOnly ? '보기 전용 화면입니다. 참여하려면 QR을 스캔하세요.' : '참여자는 스마트폰으로 그리고 올립니다. 진행자는 이 화면을 빔프로젝터에 띄우세요.'}</p>
         </div>
+        {readOnly ? (
+          <nav className="header-menu header-menu--view" aria-label="보드 메뉴">
+            <button className="soft-btn" onClick={() => document.documentElement.requestFullscreen?.()}>전체화면</button>
+          </nav>
+        ) : (
         <nav className="header-menu" aria-label="보드 메뉴">
           <a className="soft-btn" href={joinUrl} target="_blank" rel="noopener noreferrer">참여자 화면 열기</a>
           <button className="soft-btn" onClick={() => document.documentElement.requestFullscreen?.()}>전체화면</button>
@@ -823,8 +843,10 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
             {noticeEditing ? '✕ 공지 닫기' : '📢 공지'}
           </button>
           <button className="soft-btn export-btn" disabled={items.length === 0} onClick={printBoard}>🖨️ 인쇄 / PDF</button>
+          <button className="soft-btn" onClick={() => navigator.clipboard.writeText(`${getBaseUrl()}/view/${boardId}`).then(() => show('보기 전용 링크를 복사했습니다.', 'success'))}>👀 보기 링크 복사</button>
           <a className="soft-btn" href="/">← 목록</a>
         </nav>
+        )}
         <div className={`qr-box ${qrExpanded ? 'qr-box--expanded' : ''}`} onClick={() => setQrExpanded(!qrExpanded)} style={{ cursor: qrExpanded ? 'zoom-out' : 'zoom-in' }} title={qrExpanded ? '클릭하면 작아집니다' : '클릭하면 크게 보입니다'}>
           <QRCodeSVG value={joinUrl} size={qrExpanded ? 220 : 90} />
           <span>{qrExpanded ? '스마트폰으로 QR 스캔' : 'QR 참여'}</span>
@@ -838,6 +860,7 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
         </div>
       )}
 
+      {!readOnly && (
       <section className="board-toolbar">
         {/* 잠금 버튼 */}
         <button
@@ -876,7 +899,11 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
           {muted ? '🔇 효과음 꺼짐' : '🔊 효과음'}
         </button>
 
+        <button className="soft-btn soft-btn--cheer" onClick={cheerAll} disabled={cheerCooling} title="접속한 참여자 전원의 화면에 응원을 보냅니다">
+          💪 전체 응원
+        </button>
       </section>
+      )}
 
       {/* 공지 입력 패널 */}
       {noticeEditing && (
@@ -969,13 +996,15 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
               {emojiBursts.filter((b) => b.itemId === item.id).map((b) => (
                 <span key={b.id} className="emoji-burst" style={{ '--dx': `${b.dx}px` } as React.CSSProperties} aria-hidden="true">{b.emoji}</span>
               ))}
-              <button
-                className="poke-btn"
-                aria-label={`${item.uploader_name || '참여자'}님에게 칭찬 보내기`}
-                title="이 참여자에게 칭찬 보내기"
-                onClick={(e) => { e.stopPropagation(); pokeItem(item); }}
-              >👏</button>
-              {isOwner && (
+              {!readOnly && (
+                <button
+                  className="poke-btn"
+                  aria-label={`${item.uploader_name || '참여자'}님에게 칭찬 보내기`}
+                  title="이 참여자에게 칭찬 보내기"
+                  onClick={(e) => { e.stopPropagation(); pokeItem(item); }}
+                >👏</button>
+              )}
+              {isOwner && !readOnly && (
                 <button className="delete-btn" aria-label="항목 삭제" onClick={(e) => { e.stopPropagation(); removeItem(item.id); }}>×</button>
               )}
             </article>
@@ -1004,12 +1033,12 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
               </div>
             </div>
           ))}
-          <div className="hand-bar">
+          {!readOnly && <div className="hand-bar">
             <strong aria-live="polite">✋ 손든 사람 {hands.length}명</strong>
             <button className="hand-bar-btn hand-bar-btn--go" onClick={() => { setHandPickOpen(true); handRoulette.spin(); }}>🎯 한 명 뽑기</button>
             <button className="hand-bar-btn" onClick={() => setPinball({ names: handNames, title: '✋ 손든 사람 핀볼 추첨', fromHands: true })}>🎱 핀볼로 뽑기</button>
             <button className="hand-bar-btn" onClick={() => setHands([])}>지우기</button>
-          </div>
+          </div>}
         </div>
       )}
 
@@ -1025,7 +1054,7 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
         </div>
       )}
 
-      {selected && <ImageModal item={selected} onClose={() => setSelected(null)} onPoke={() => pokeItem(selected)} />}
+      {selected && <ImageModal item={selected} onClose={() => setSelected(null)} onPoke={readOnly ? undefined : () => pokeItem(selected)} />}
       {showRoulette && (
         <RouletteModal
           names={uniqueNames}
@@ -1092,7 +1121,7 @@ function JoinScreen({ boardId }: { boardId: string }) {
     } catch { return {}; }
   });
   const pendingReacts = useRef(new Map<string, number>());
-  const [poke, setPoke] = useState<{ id: number; name: string } | null>(null);
+  const [poke, setPoke] = useState<{ id: number; emoji: string; title: string; text: string } | null>(null);
   const mineRef = useRef(new Set<string>());
   mineRef.current = new Set([...items.filter(isMine).map((it) => it.uploader_name || ''), name.trim()].filter(Boolean));
   const fileRef = useRef<HTMLInputElement>(null);
@@ -1158,7 +1187,13 @@ function JoinScreen({ boardId }: { boardId: string }) {
       .on('broadcast', { event: 'item-uploaded' }, () => { syncAll(); })
       .on('broadcast', { event: 'poke' }, ({ payload }: any) => {
         if (!payload?.name || !mineRef.current.has(String(payload.name))) return;
-        setPoke({ id: Date.now(), name: String(payload.name) });
+        setPoke({ id: Date.now(), emoji: '👏', title: `${String(payload.name)}님!`, text: '너무 좋아요! 잘했어요!' });
+        navigator.vibrate?.([250, 120, 250, 120, 450]);
+        sfx.gate();
+        sfx.beep(true);
+      })
+      .on('broadcast', { event: 'cheer-all' }, ({ payload }: any) => {
+        setPoke({ id: Date.now(), emoji: '💪', title: String(payload?.text || '자! 힘을 내세요!').slice(0, 40), text: '진행자가 모두에게 보내는 응원' });
         navigator.vibrate?.([250, 120, 250, 120, 450]);
         sfx.gate();
         sfx.beep(true);
@@ -1467,9 +1502,9 @@ function JoinScreen({ boardId }: { boardId: string }) {
 
       {poke && (
         <button key={poke.id} className="poke-overlay" onClick={() => setPoke(null)}>
-          <span className="poke-bell">👏</span>
-          <strong>{poke.name}님!</strong>
-          <span>너무 좋아요! 잘했어요!</span>
+          <span className="poke-bell">{poke.emoji}</span>
+          <strong>{poke.title}</strong>
+          <span>{poke.text}</span>
           <small>화면을 누르면 닫힙니다</small>
         </button>
       )}
