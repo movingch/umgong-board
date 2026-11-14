@@ -5,6 +5,8 @@ import { supabase, isSupabaseReady } from './lib/supabase';
 import type { User } from '@supabase/supabase-js';
 import type { Board, BoardItem } from './types';
 import { sfx } from './sfx';
+import { Confetti } from './Confetti';
+import { PinballModal } from './Pinball';
 import './styles.css';
 
 const BUCKET = 'board-images';
@@ -165,6 +167,28 @@ function Toast({ toast }: { toast: { msg: string; type: 'success' | 'error' } | 
   return <div className={`toast toast-${toast.type}`}>{toast.msg}</div>;
 }
 
+// ── 손든 이름 (진행자 화면에 떠다니는 이름표) ─────────────
+type FloatingHand = { id: number; name: string; x: number; y: number; fx: number; fy: number; dx: number; dy: number; rot: number; dur: number };
+
+function makeFloatingHand(seq: number, name: string): FloatingHand {
+  // R2 저불일치 수열로 자리를 잡아 인원이 많아도 화면에 고르게 퍼진다
+  const frac = (v: number) => v - Math.floor(v);
+  const angle = Math.random() * Math.PI * 2;
+  const sign = () => (Math.random() < 0.5 ? -1 : 1);
+  return {
+    id: seq,
+    name,
+    x: 9 + frac(0.5 + seq * 0.7548776662) * 82,
+    y: 12 + frac(0.5 + seq * 0.5698402910) * 66,
+    fx: Math.cos(angle) * 80,
+    fy: Math.sin(angle) * 80,
+    dx: sign() * (2 + Math.random() * 5),
+    dy: sign() * (2 + Math.random() * 6),
+    rot: sign() * (2 + Math.random() * 6),
+    dur: 2.2 + Math.random() * 2.6,
+  };
+}
+
 // ── 발표자 추첨 훅 ────────────────────────────────────────
 function useRoulette(names: string[]) {
   const [phase, setPhase] = useState<'idle' | 'spinning' | 'done'>('idle');
@@ -211,7 +235,6 @@ function useRoulette(names: string[]) {
         timerRef.current = window.setTimeout(() => {
           setPhase('done');
           sfx.bravo();
-          sfx.say('부라보');
         }, 700);
         return;
       }
@@ -541,8 +564,11 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
   const [qrExpanded, setQrExpanded] = useState(false);
   const [sortByLikes, setSortByLikes] = useState(false);
   const [shakingId, setShakingId] = useState<string | null>(null);
-  const [handParticles, setHandParticles] = useState<{ id: number; name: string }[]>([]);
-  const handParticleId = useRef(0);
+  const [hands, setHands] = useState<FloatingHand[]>([]);
+  const handSeq = useRef(0);
+  const handClearTimer = useRef<number>(0);
+  const [handPickOpen, setHandPickOpen] = useState(false);
+  const [pinball, setPinball] = useState<{ names: string[]; title: string; fromHands: boolean } | null>(null);
   const [showRoulette, setShowRoulette] = useState(false);
   const [noticeInput, setNoticeInput] = useState('');
   const [noticeEditing, setNoticeEditing] = useState(false);
@@ -565,6 +591,8 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
   );
   const uniqueNames = [...new Set(items.map((it) => it.uploader_name).filter(Boolean) as string[])];
   const roulette = useRoulette(uniqueNames);
+  const handNames = hands.map((h) => h.name);
+  const handRoulette = useRoulette(handNames);
   const { toast, show } = useToast();
   const joinUrl = `${getBaseUrl()}/join/${boardId}`;
 
@@ -653,12 +681,12 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
       })
       .on('broadcast', { event: 'hand-raised' }, ({ payload }: any) => {
         if (!payload?.name) return;
-        const pid = ++handParticleId.current;
+        const hand = makeFloatingHand(++handSeq.current, String(payload.name).slice(0, 30));
         sfx.hand();
-        setHandParticles((prev) => [...prev, { id: pid, name: String(payload.name) }].slice(-8));
-        setTimeout(() => {
-          setHandParticles((prev) => prev.filter((p) => p.id !== pid));
-        }, 3400);
+        // 같은 이름이 다시 들면 새로 날아오게 교체한다
+        setHands((prev) => [...prev.filter((h) => h.name !== hand.name), hand].slice(-100));
+        window.clearTimeout(handClearTimer.current);
+        handClearTimer.current = window.setTimeout(() => setHands([]), 90000);
       })
       .subscribe();
     channelRef.current = channel;
@@ -776,6 +804,9 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
         {uniqueNames.length > 0 && (
           <button className="soft-btn" onClick={() => setShowRoulette(true)}>🎲 발표자 추첨</button>
         )}
+        {uniqueNames.length > 0 && (
+          <button className="soft-btn" onClick={() => setPinball({ names: uniqueNames, title: '🎱 핀볼 추첨', fromHands: false })}>🎱 핀볼 추첨</button>
+        )}
 
         <button
           className="soft-btn"
@@ -889,15 +920,33 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
         )}
       </section>
 
-      {/* 손들기 이름 (진행자 화면) — 여러 명이 동시에 들면 세로로 쌓인다 */}
-      {handParticles.length > 0 && (
-        <div className={`hand-stack${handParticles.length > 3 ? ' hand-stack--many' : ''}`} aria-live="polite">
-          {handParticles.map((p) => (
-            <div key={p.id} className="hand-name-bubble">
-              <span className="hand-name-emoji">✋</span>
-              <span className="hand-name-text">{p.name}</span>
+      {/* 손든 이름들 — 사방에서 날아와 떠다닌다 */}
+      {hands.length > 0 && !handPickOpen && !showRoulette && !pinball && (
+        <div
+          className="hand-field"
+          style={{ '--hand-size': `clamp(1.05rem, ${Math.max(1.9, 8 / Math.sqrt(hands.length)).toFixed(2)}vw, 7rem)` } as React.CSSProperties}
+        >
+          {hands.map((h) => (
+            <div
+              key={h.id}
+              className="hand-float"
+              style={{ left: `${h.x}%`, top: `${h.y}%`, '--fx': `${h.fx}vw`, '--fy': `${h.fy}vh` } as React.CSSProperties}
+            >
+              <div
+                className="hand-float-inner"
+                style={{ '--dx': `${h.dx}vw`, '--dy': `${h.dy}vh`, '--rot': `${h.rot}deg`, animationDuration: `${h.dur}s` } as React.CSSProperties}
+              >
+                <span className="hand-name-emoji">✋</span>
+                <span className="hand-name-text">{h.name}</span>
+              </div>
             </div>
           ))}
+          <div className="hand-bar">
+            <strong aria-live="polite">✋ 손든 사람 {hands.length}명</strong>
+            <button className="hand-bar-btn hand-bar-btn--go" onClick={() => { setHandPickOpen(true); handRoulette.spin(); }}>🎯 한 명 뽑기</button>
+            <button className="hand-bar-btn" onClick={() => setPinball({ names: handNames, title: '✋ 손든 사람 핀볼 추첨', fromHands: true })}>🎱 핀볼로 뽑기</button>
+            <button className="hand-bar-btn" onClick={() => setHands([])}>지우기</button>
+          </div>
         </div>
       )}
 
@@ -919,6 +968,21 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
           names={uniqueNames}
           roulette={roulette}
           onClose={() => { roulette.reset(); setShowRoulette(false); }}
+        />
+      )}
+      {pinball && (
+        <PinballModal
+          names={pinball.names}
+          title={pinball.title}
+          onClose={() => { if (pinball.fromHands) setHands([]); setPinball(null); }}
+        />
+      )}
+      {handPickOpen && (
+        <RouletteModal
+          title="✋ 손든 사람 중 발표자 뽑기"
+          names={handNames}
+          roulette={handRoulette}
+          onClose={() => { handRoulette.reset(); setHandPickOpen(false); setHands([]); }}
         />
       )}
       <Toast toast={toast} />
@@ -1268,61 +1332,9 @@ function JoinScreen({ boardId }: { boardId: string }) {
   );
 }
 
-// ── 꽃가루 ────────────────────────────────────────────────
-function Confetti() {
-  const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const cv = ref.current;
-    const g = cv?.getContext('2d');
-    if (!cv || !g || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const W = (cv.width = window.innerWidth * dpr);
-    const H = (cv.height = window.innerHeight * dpr);
-    const colors = ['#f5c542', '#ff6b6b', '#4dabf7', '#51cf66', '#ffffff', '#c8974e', '#f783ac'];
-    const ps = Array.from({ length: 200 }, (_, i) => {
-      const fromLeft = i % 2 === 0;
-      return {
-        x: fromLeft ? 0 : W,
-        y: H * (0.55 + Math.random() * 0.4),
-        vx: (fromLeft ? 1 : -1) * (5 + Math.random() * 16) * dpr,
-        vy: -(9 + Math.random() * 20) * dpr,
-        w: (6 + Math.random() * 8) * dpr,
-        h: (4 + Math.random() * 6) * dpr,
-        rot: Math.random() * Math.PI,
-        vr: (Math.random() - 0.5) * 0.4,
-        color: colors[i % colors.length],
-      };
-    });
-    const started = performance.now();
-    let raf = 0;
-    const frame = (now: number) => {
-      const t = now - started;
-      g.clearRect(0, 0, W, H);
-      g.globalAlpha = t > 3600 ? Math.max(0, 1 - (t - 3600) / 900) : 1;
-      for (const p of ps) {
-        p.vy += 0.26 * dpr;
-        p.vx *= 0.99;
-        p.x += p.vx;
-        p.y += p.vy;
-        p.rot += p.vr;
-        g.save();
-        g.translate(p.x, p.y);
-        g.rotate(p.rot);
-        g.fillStyle = p.color;
-        g.fillRect(-p.w / 2, -p.h / 2, p.w, p.h * Math.abs(Math.cos(p.rot * 2)) + 1);
-        g.restore();
-      }
-      if (t < 4500) raf = requestAnimationFrame(frame);
-      else g.clearRect(0, 0, W, H);
-    };
-    raf = requestAnimationFrame(frame);
-    return () => cancelAnimationFrame(raf);
-  }, []);
-  return <canvas ref={ref} className="confetti-canvas" aria-hidden="true" />;
-}
-
 // ── RouletteModal (전체 화면 추첨 무대) ───────────────────
-function RouletteModal({ names, roulette, onClose }: {
+function RouletteModal({ names, roulette, onClose, title = '🎲 발표자 추첨' }: {
+  title?: string;
   names: string[];
   roulette: ReturnType<typeof useRoulette>;
   onClose: () => void;
@@ -1338,7 +1350,7 @@ function RouletteModal({ names, roulette, onClose }: {
   return (
     <div className={`raffle-stage raffle-stage--${phase}`} role="dialog" aria-modal="true" aria-label="발표자 추첨">
       <div className="raffle-spot" style={{ '--p': progress } as React.CSSProperties} />
-      <div className="raffle-title">🎲 발표자 추첨</div>
+      <div className="raffle-title">{title}</div>
 
       {phase === 'done' && <div className="raffle-bravo">부라보!</div>}
 
