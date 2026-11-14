@@ -361,7 +361,7 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
 .board-heading { flex: 1 1 260px; min-width: 0; }
 .header-menu {
   display: grid;
-  grid-template-columns: repeat(3, auto);
+  grid-template-columns: repeat(4, auto);
   gap: 8px;
   align-self: center;
   flex: 0 1 auto;
@@ -1567,7 +1567,7 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
 ══════════════════════════════════════════════════════════ */
 @media (max-width: 1100px) {
   .board-header { flex-wrap: wrap; }
-  .header-menu { order: 3; flex: 1 1 100%; grid-template-columns: repeat(6, auto); justify-content: start; overflow-x: auto; }
+  .header-menu { order: 3; flex: 1 1 100%; grid-template-columns: repeat(4, auto); justify-content: start; }
 }
 @media (max-width: 760px) {
   .hero-card, .join-card { padding: 26px; border-radius: 28px; }
@@ -1583,6 +1583,9 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
   .toast { font-size: 14px; padding: 12px 20px; max-width: 90vw; white-space: normal; text-align: center; }
   .notice-panel, .timer-panel, .raised-hands-bar { padding-left: 16px; padding-right: 16px; }
   .join-gallery-section { border-radius: 24px; }
+  .image-stage img { width: 96vw; max-height: 72vh; border-radius: 14px; }
+  .image-stage p { font-size: 17px; }
+  .image-poke-btn { height: auto; min-height: 52px; padding: 10px 20px; font-size: 15px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

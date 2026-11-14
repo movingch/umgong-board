@@ -808,6 +808,13 @@ function BoardScreen({ boardId, user, readOnly = false }: { boardId: string; use
     show(res === 'ok' ? '💪 참여자 전원에게 응원을 보냈습니다.' : '응원 전송에 실패했습니다. 다시 눌러 주세요.', res === 'ok' ? 'success' : 'error');
   }
 
+  async function reloadParticipants() {
+    if (!channelRef.current) { show('데모 모드에서는 사용할 수 없습니다.', 'error'); return; }
+    if (!confirm('열려 있는 참여자 화면을 모두 새로고침할까요?\n(그리는 중이거나 글을 쓰는 중인 사람은 끝낸 뒤에 새로고침됩니다)')) return;
+    const res = await channelRef.current.send({ type: 'broadcast', event: 'force-reload', payload: {} });
+    show(res === 'ok' ? '🔄 참여자 화면에 새로고침 신호를 보냈습니다.' : '전송에 실패했습니다. 다시 눌러 주세요.', res === 'ok' ? 'success' : 'error');
+  }
+
   function startTimer(total: number) {
     if (total <= 0) { show('시간을 1초 이상으로 설정해 주세요.', 'error'); return; }
     timer.start(Math.min(total, 180 * 60));
@@ -897,6 +904,10 @@ function BoardScreen({ boardId, user, readOnly = false }: { boardId: string; use
           title={muted ? '효과음 켜기' : '효과음 끄기'}
         >
           {muted ? '🔇 효과음 꺼짐' : '🔊 효과음'}
+        </button>
+
+        <button className="soft-btn" onClick={reloadParticipants} title="열려 있는 참여자 화면을 최신 버전으로 다시 불러옵니다">
+          🔄 참여자 새로고침
         </button>
 
         <button className="soft-btn soft-btn--cheer" onClick={cheerAll} disabled={cheerCooling} title="접속한 참여자 전원의 화면에 응원을 보냅니다">
@@ -1054,7 +1065,7 @@ function BoardScreen({ boardId, user, readOnly = false }: { boardId: string; use
         </div>
       )}
 
-      {selected && <ImageModal item={selected} onClose={() => setSelected(null)} onPoke={readOnly ? undefined : () => pokeItem(selected)} />}
+      {selected && <ImageModal item={selected} onClose={() => setSelected(null)} action={readOnly ? undefined : { label: `👏 ${selected.uploader_name || '참여자'}님에게 칭찬 보내기`, onClick: () => pokeItem(selected) }} />}
       {showRoulette && (
         <RouletteModal
           names={uniqueNames}
@@ -1121,6 +1132,33 @@ function JoinScreen({ boardId }: { boardId: string }) {
     } catch { return {}; }
   });
   const pendingReacts = useRef(new Map<string, number>());
+  const [reloadPending, setReloadPending] = useState(false);
+  const [zoomItem, setZoomItem] = useState<BoardItem | null>(null);
+
+  // 새 버전이 배포되면 스스로 알아채고 다시 불러온다 (1분마다, 화면을 다시 켤 때)
+  useEffect(() => {
+    const current = document.querySelector('script[type="module"][src*="/assets/"]')?.getAttribute('src');
+    if (!current) return;
+    let alive = true;
+    async function check() {
+      try {
+        const html = await fetch('/index.html', { cache: 'no-store' }).then((r) => r.text());
+        const latest = html.match(/src="(\/assets\/index-[^"]+\.js)"/)?.[1];
+        if (alive && latest && latest !== current) setReloadPending(true);
+      } catch { /* 다음 주기에 다시 확인한다 */ }
+    }
+    const t = window.setInterval(() => { if (!document.hidden) check(); }, 60000);
+    const onVisible = () => { if (!document.hidden) check(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { alive = false; window.clearInterval(t); document.removeEventListener('visibilitychange', onVisible); };
+  }, []);
+
+  // 작성 중인 내용을 날리지 않도록, 그리기·글쓰기·제출이 끝난 뒤에 새로고침한다
+  useEffect(() => {
+    if (!reloadPending || busy || drawOpen || textOpen) return;
+    if (name.trim()) localStorage.setItem('saenggak-name', name.trim());
+    window.location.reload();
+  }, [reloadPending, busy, drawOpen, textOpen]);
   const [poke, setPoke] = useState<{ id: number; emoji: string; title: string; text: string } | null>(null);
   const mineRef = useRef(new Set<string>());
   mineRef.current = new Set([...items.filter(isMine).map((it) => it.uploader_name || ''), name.trim()].filter(Boolean));
@@ -1192,6 +1230,7 @@ function JoinScreen({ boardId }: { boardId: string }) {
         sfx.gate();
         sfx.beep(true);
       })
+      .on('broadcast', { event: 'force-reload' }, () => setReloadPending(true))
       .on('broadcast', { event: 'cheer-all' }, ({ payload }: any) => {
         setPoke({ id: Date.now(), emoji: '💪', title: String(payload?.text || '자! 힘을 내세요!').slice(0, 40), text: '진행자가 모두에게 보내는 응원' });
         navigator.vibrate?.([250, 120, 250, 120, 450]);
@@ -1458,9 +1497,9 @@ function JoinScreen({ boardId }: { boardId: string }) {
                 <div
                   key={item.id}
                   className={`join-thumb${isMyCard ? ' join-thumb--mine' : ''}`}
-                  onClick={isMyCard ? () => { shakeMyCard(item.id); show('📢 진행자 화면에서 흔들립니다!', 'success'); } : undefined}
-                  style={isMyCard ? { cursor: 'pointer' } : undefined}
-                  title={isMyCard ? '클릭하면 진행자 화면에서 흔들립니다!' : undefined}
+                  onClick={() => setZoomItem(item)}
+                  style={{ cursor: 'zoom-in' }}
+                  title="누르면 크게 볼 수 있습니다"
                 >
                   {isMyCard && <div className="my-card-badge">내 것 👆</div>}
                   {isMyCard && (
@@ -1507,6 +1546,16 @@ function JoinScreen({ boardId }: { boardId: string }) {
           <span>{poke.text}</span>
           <small>화면을 누르면 닫힙니다</small>
         </button>
+      )}
+      {zoomItem && (
+        <ImageModal
+          item={items.find((it) => it.id === zoomItem.id) || zoomItem}
+          onClose={() => setZoomItem(null)}
+          action={isMine(zoomItem) ? {
+            label: '📢 진행자 화면에서 내 카드 흔들기',
+            onClick: () => { shakeMyCard(zoomItem.id); show('📢 진행자 화면에서 흔들립니다!', 'success'); },
+          } : undefined}
+        />
       )}
       <Toast toast={toast} />
       {drawOpen && <DrawingModal onClose={() => setDrawOpen(false)} onSave={(dataUrl) => saveItem('drawing', dataUrlToBlob(dataUrl), 'png')} />}
@@ -1675,7 +1724,7 @@ function DrawingModal({ onClose, onSave }: { onClose: () => void; onSave: (dataU
 }
 
 // ── ImageModal ────────────────────────────────────────────
-function ImageModal({ item, onClose, onPoke }: { item: BoardItem; onClose: () => void; onPoke?: () => void }) {
+function ImageModal({ item, onClose, action }: { item: BoardItem; onClose: () => void; action?: { label: string; onClick: () => void } }) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handler);
@@ -1692,12 +1741,12 @@ function ImageModal({ item, onClose, onPoke }: { item: BoardItem; onClose: () =>
             <span key={x.kind} style={{ marginLeft: 12 }}>{x.emoji} {item.reactions![x.kind]}</span>
           ))}
         </p>
-        {onPoke && (
-          <button className="raffle-btn image-poke-btn" onClick={(e) => { e.stopPropagation(); onPoke(); }}>
-            👏 {item.uploader_name || '참여자'}님에게 칭찬 보내기
+        {action && (
+          <button className="raffle-btn image-poke-btn" onClick={(e) => { e.stopPropagation(); action.onClick(); }}>
+            {action.label}
           </button>
         )}
-        <span>다시 클릭하면 보드로 돌아갑니다.</span>
+        <span>화면을 누르면 닫힙니다.</span>
       </div>
     </div>
   );
