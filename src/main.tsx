@@ -542,8 +542,20 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
       return () => window.clearInterval(t);
     }
 
+    // 최신 아이템 전체 동기화 함수
+    async function syncAll() {
+      const [{ data: latestItems }, { data: latestBoard }] = await Promise.all([
+        supabase.from('board_items').select('*').eq('board_id', boardId).order('created_at', { ascending: true }),
+        supabase.from('boards').select('*').eq('id', boardId).single(),
+      ]);
+      if (latestItems) setItems(latestItems as BoardItem[]);
+      if (latestBoard) setBoard((prev) => prev ? { ...prev, ...(latestBoard as Board) } : latestBoard as Board);
+    }
+
     // Presence: 참여자 수 추적
-    const presenceChannel = supabase.channel(`presence-${boardId}`, { config: { presence: { key: 'facilitator' } } });
+    const presenceChannel = supabase.channel(`presence-${boardId}`, {
+      config: { presence: { key: 'facilitator' }, broadcast: { self: true } },
+    });
     presenceChannel
       .on('presence', { event: 'sync' }, () => {
         const state = presenceChannel.presenceState();
@@ -563,7 +575,7 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
       });
 
     const channel = supabase
-      .channel(`board-${boardId}`)
+      .channel(`board-${boardId}`, { config: { broadcast: { self: true } } })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'board_items', filter: `board_id=eq.${boardId}` }, (payload) => {
         setItems((prev) => prev.some((it) => it.id === payload.new.id) ? prev : [...prev, payload.new as BoardItem]);
       })
@@ -581,9 +593,16 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
         setShakingId(payload.itemId);
         setTimeout(() => setShakingId(null), 900);
       })
+      .on('broadcast', { event: 'item-uploaded' }, () => {
+        syncAll();
+      })
       .subscribe();
 
+    // 3초 폴링: Realtime 지연·단절 보완
+    const pollTimer = window.setInterval(syncAll, 3000);
+
     return () => {
+      window.clearInterval(pollTimer);
       supabase?.removeChannel(channel);
       supabase?.removeChannel(presenceChannel);
     };
@@ -906,6 +925,10 @@ function JoinScreen({ boardId }: { boardId: string }) {
       } else {
         const { error } = await supabase.from('board_items').insert(item);
         if (error) throw error;
+        // 진행자 화면에 즉시 알림 broadcast
+        if (broadcastRef.current) {
+          await broadcastRef.current.send({ type: 'broadcast', event: 'item-uploaded', payload: { itemId: item.id } });
+        }
       }
       setCaption('');
       show('보드에 붙였습니다. PC 화면을 확인하세요.', 'success');
