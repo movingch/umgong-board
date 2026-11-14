@@ -160,7 +160,19 @@ async function uploadBlob(boardId: string, blob: Blob, ext: string) {
   return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
-function printBoard() { window.print(); }
+// 인쇄 직전에 아래쪽 이미지까지 모두 불러와 빈 칸이 PDF에 남지 않게 한다
+function loadAllImages() {
+  const imgs = [...document.querySelectorAll<HTMLImageElement>('.cork-board img')];
+  imgs.forEach((img) => { img.loading = 'eager'; });
+  return Promise.all(imgs.map((img) => (img.complete ? Promise.resolve() : new Promise<void>((resolve) => {
+    img.addEventListener('load', () => resolve(), { once: true });
+    img.addEventListener('error', () => resolve(), { once: true });
+  }))));
+}
+async function printBoard() {
+  await Promise.race([loadAllImages(), new Promise((r) => setTimeout(r, 8000))]);
+  window.print();
+}
 
 // ── PWA 설치 버튼 ─────────────────────────────────────────
 function useInstallPrompt() {
@@ -1080,6 +1092,7 @@ function BoardScreen({ boardId, user, readOnly = false }: { boardId: string; use
         </div>
       )}
 
+      <h1 className="print-title">{board?.title || '생각보드'}</h1>
       <section className="cork-board">
         {items.length === 0 ? (
           <div className="empty-board">아직 붙은 그림이 없습니다. QR로 접속해서 첫 번째 생각을 붙여보세요.</div>

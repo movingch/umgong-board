@@ -1314,28 +1314,47 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
    인쇄 / PDF
 ══════════════════════════════════════════════════════════ */
 @media print {
-  .board-header, .board-toolbar, .image-modal, .draw-backdrop,
+  @page { size: A4 landscape; margin: 8mm; }
+  html, body { background: #b98a45 !important; height: auto !important; overflow: visible !important; margin: 0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .board-header, .board-toolbar, .image-modal, .draw-backdrop, .toast,
   .notice-banner, .notice-panel, .timer-panel, .raised-hands-bar { display: none !important; }
-  body { background: #c89f62 !important; margin: 0; }
-  .board-page { min-height: auto; }
+  .board-page { min-height: 0 !important; height: auto !important; overflow: visible !important; position: static !important; background: transparent !important; }
+  .print-title { display: block !important; }
+
+  /* 격자 대신 inline-block: 어떤 브라우저에서도 카드가 페이지 경계에서 쪼개지지 않는다 */
   .cork-board {
-    min-height: auto !important;
-    padding: 24px !important;
-    display: grid !important;
-    grid-template-columns: repeat(4, 1fr) !important;
-    gap: 20px !important;
-    background:
-      radial-gradient(circle at 18px 18px, rgba(55,32,12,.12) 2px, transparent 3px),
-      linear-gradient(135deg, var(--cork), var(--cork-dark)) !important;
-    background-size: 32px 32px, auto !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
+    display: block !important;
+    min-height: 0 !important;
+    padding: 2mm 0 0 !important;
+    background: transparent !important;
+    font-size: 0 !important;
+    text-align: left;
+    orphans: 1;
+    widows: 1;
   }
-  .photo-note { box-shadow: 0 4px 10px rgba(0,0,0,.2) !important; break-inside: avoid; }
+  .photo-note {
+    display: inline-block !important;
+    vertical-align: top;
+    width: calc(25% - 6mm) !important;
+    margin: 3mm 3mm 2mm !important;
+    font-size: 14px;
+    box-sizing: border-box;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    animation: none !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,.28) !important;
+    -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
+  }
+  .photo-note::after { display: none !important; }
+  /* 테이프가 카드 밖으로 튀어나가 다른 쪽에 남지 않게 카드 안쪽에 둔다 */
+  .tape { top: 0 !important; }
   .delete-btn, .like-badge, .poke-btn, .emoji-burst { display: none !important; }
-  .photo-note img { opacity: 1 !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  .photo-note img { height: 150px !important; opacity: 1 !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  .photo-note { padding-bottom: 44px !important; }
   .empty-board { display: none !important; }
 }
+
+.print-title { display: none; margin: 0 3mm 2mm; font-size: 20px; font-weight: 900; color: #fff; letter-spacing: -.03em; text-shadow: 0 1px 4px rgba(0,0,0,.35); }
 
 /* ══════════════════════════════════════════════════════════
    애니메이션
