@@ -755,11 +755,21 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
   return (
     <main className="board-page">
       <header className="board-header">
-        <div>
+        <div className="board-heading">
           <div className="brand small">생각보드</div>
           <h1>{board?.title || '생각보드'}</h1>
           <p>참여자는 스마트폰으로 그리고 올립니다. 진행자는 이 화면을 빔프로젝터에 띄우세요.</p>
         </div>
+        <nav className="header-menu" aria-label="보드 메뉴">
+          <a className="soft-btn" href={joinUrl} target="_blank" rel="noopener noreferrer">참여자 화면 열기</a>
+          <button className="soft-btn" onClick={() => document.documentElement.requestFullscreen?.()}>전체화면</button>
+          <button className="soft-btn" onClick={() => navigator.clipboard.writeText(joinUrl).then(() => show('링크를 복사했습니다.', 'success'))}>참여 링크 복사</button>
+          <button className={`soft-btn ${noticeEditing ? 'soft-btn--active' : ''}`} onClick={() => setNoticeEditing(!noticeEditing)}>
+            {noticeEditing ? '✕ 공지 닫기' : '📢 공지'}
+          </button>
+          <button className="soft-btn export-btn" disabled={items.length === 0} onClick={printBoard}>🖨️ 인쇄 / PDF</button>
+          <a className="soft-btn" href="/">← 목록</a>
+        </nav>
         <div className={`qr-box ${qrExpanded ? 'qr-box--expanded' : ''}`} onClick={() => setQrExpanded(!qrExpanded)} style={{ cursor: qrExpanded ? 'zoom-out' : 'zoom-in' }} title={qrExpanded ? '클릭하면 작아집니다' : '클릭하면 크게 보입니다'}>
           <QRCodeSVG value={joinUrl} size={qrExpanded ? 220 : 90} />
           <span>{qrExpanded ? '스마트폰으로 QR 스캔' : 'QR 참여'}</span>
@@ -774,11 +784,6 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
       )}
 
       <section className="board-toolbar">
-        <a className="soft-btn" href={joinUrl} target="_blank" rel="noopener noreferrer">참여자 화면 열기</a>
-        <button className="soft-btn" onClick={() => document.documentElement.requestFullscreen?.()}>전체화면</button>
-        <button className="soft-btn" onClick={() => navigator.clipboard.writeText(joinUrl).then(() => show('링크를 복사했습니다.', 'success'))}>참여 링크 복사</button>
-        <div className="toolbar-divider" />
-
         {/* 잠금 버튼 */}
         <button
           className={`soft-btn ${board?.locked ? 'soft-btn--danger' : ''}`}
@@ -816,15 +821,6 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
           {muted ? '🔇 효과음 꺼짐' : '🔊 효과음'}
         </button>
 
-        <div className="toolbar-divider" />
-
-        {/* 공지 버튼 */}
-        <button className="soft-btn" onClick={() => setNoticeEditing(!noticeEditing)}>
-          {noticeEditing ? '✕ 닫기' : '📢 공지'}
-        </button>
-
-        <button className="soft-btn export-btn" disabled={items.length === 0} onClick={printBoard}>🖨️ 인쇄 / PDF</button>
-        <a className="soft-btn" href="/">← 목록</a>
       </section>
 
       {/* 공지 입력 패널 */}

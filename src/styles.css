@@ -358,6 +358,16 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
 .board-header h1 { font-size: clamp(22px, 3.2vw, 42px); margin: 4px 0 2px; letter-spacing: -.05em; }
 .board-header p { margin: 0; font-size: 14px; }
 
+.board-heading { flex: 1 1 260px; min-width: 0; }
+.header-menu {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  gap: 8px;
+  align-self: center;
+  flex: 0 1 auto;
+}
+.header-menu .soft-btn { padding: 9px 14px; font-size: 13px; white-space: nowrap; }
+
 /* 접속자 뱃지 */
 .presence-badge {
   display: inline-flex;
@@ -1437,9 +1447,15 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
 /* ══════════════════════════════════════════════════════════
    반응형
 ══════════════════════════════════════════════════════════ */
+@media (max-width: 1100px) {
+  .board-header { flex-wrap: wrap; }
+  .header-menu { order: 3; flex: 1 1 100%; grid-template-columns: repeat(6, auto); justify-content: start; overflow-x: auto; }
+}
 @media (max-width: 760px) {
   .hero-card, .join-card { padding: 26px; border-radius: 28px; }
   .board-header { flex-direction: column; padding: 16px 20px; position: static; }
+  .board-heading { flex: none; }
+  .header-menu { order: 0; grid-template-columns: repeat(2, 1fr); width: 100%; align-self: stretch; overflow: visible; }
   .qr-box { width: 100%; border-radius: 18px; }
   .board-toolbar { padding: 10px 16px; }
   .cork-board { padding: 22px; grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); gap: 24px; }
