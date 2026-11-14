@@ -1383,6 +1383,7 @@ button:disabled { opacity: .45; cursor: not-allowed; transform: none !important;
   box-shadow: 0 4px 12px rgba(200,151,78,.4);
 }
 
+.field-required { color: #c0392b; font-weight: 800; }
 .my-names-empty { margin: 0; font-size: 13px; color: var(--muted); }
 .hand-raise-btn--wide { width: 100%; margin-top: 12px; min-height: 52px; font-size: 16px; justify-content: center; }
 .hand-raise-btn:disabled { opacity: .6; cursor: default; }

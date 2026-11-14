@@ -946,6 +946,7 @@ function JoinScreen({ boardId }: { boardId: string }) {
     catch { return new Set(); }
   });
   const fileRef = useRef<HTMLInputElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
   const { toast, show } = useToast();
 
   // 보드 정보 + 아이템 로드
@@ -1059,11 +1060,19 @@ function JoinScreen({ boardId }: { boardId: string }) {
     else show(`✋ ${handNames.join(', ')} — 진행자 화면에 나타납니다!`, 'success');
   }
 
+  function requireName() {
+    if (name.trim()) return true;
+    show('이름 또는 별명을 먼저 입력해 주세요.', 'error');
+    nameRef.current?.focus();
+    return false;
+  }
+
   async function saveItem(type: BoardItem['type'], blob: Blob, ext: string) {
+    if (!requireName()) return;
     setBusy(true);
     try {
-      localStorage.setItem('saenggak-name', name);
-      const submittedName = name.trim() || '이름 없는 참여자';
+      const submittedName = name.trim();
+      localStorage.setItem('saenggak-name', submittedName);
       if (submittedName && !myNames.includes(submittedName)) {
         const updated = [...myNames, submittedName];
         setMyNames(updated);
@@ -1072,7 +1081,7 @@ function JoinScreen({ boardId }: { boardId: string }) {
       const imageUrl = await uploadBlob(boardId, blob, ext);
       const item: BoardItem = {
         id: uid(), board_id: boardId, type, image_url: imageUrl,
-        uploader_name: name.trim() || '이름 없는 참여자',
+        uploader_name: submittedName,
         caption: caption.trim() || null, rotate: randomRotate(),
         created_at: new Date().toISOString(),
         likes: 0,
@@ -1138,7 +1147,7 @@ function JoinScreen({ boardId }: { boardId: string }) {
   }
 
   async function handleTextSave(text: string) {
-    await saveItem('text', await textToImageBlob(text, name.trim() || '이름 없는 참여자'), 'png');
+    await saveItem('text', await textToImageBlob(text, name.trim()), 'png');
   }
 
   const isLocked = board?.locked;
@@ -1165,14 +1174,14 @@ function JoinScreen({ boardId }: { boardId: string }) {
           <>
             <h1>사진이나 낙서를 보드에 붙이세요.</h1>
             {!isSupabaseReady && <div className="warning">데모 모드입니다. 같은 브라우저 안에서만 확인됩니다.</div>}
-            <label className="field-label" htmlFor="join-name">이름 또는 별명</label>
-            <input id="join-name" className="title-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="이름 또는 별명" />
+            <label className="field-label" htmlFor="join-name">이름 또는 별명 <span className="field-required">(필수)</span></label>
+            <input id="join-name" ref={nameRef} required aria-required="true" maxLength={20} className="title-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="이름 또는 별명" />
             <label className="field-label" htmlFor="join-caption">짧은 설명</label>
             <input id="join-caption" className="title-input" value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="선택 사항" />
             <div className="join-actions">
-              <button className="primary-btn" disabled={busy} onClick={() => fileRef.current?.click()}>사진 올리기</button>
-              <button className="secondary-btn" disabled={busy} onClick={() => setDrawOpen(true)}>낙서 올리기</button>
-              <button className="secondary-btn" disabled={busy} onClick={() => setTextOpen(true)}>텍스트 올리기</button>
+              <button className="primary-btn" disabled={busy} onClick={() => { if (requireName()) fileRef.current?.click(); }}>사진 올리기</button>
+              <button className="secondary-btn" disabled={busy} onClick={() => { if (requireName()) setDrawOpen(true); }}>낙서 올리기</button>
+              <button className="secondary-btn" disabled={busy} onClick={() => { if (requireName()) setTextOpen(true); }}>텍스트 올리기</button>
             </div>
             <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => handleFiles(e.target.files)} />
             <p className="hint">스마트폰에서는 손가락으로 바로 그릴 수 있습니다.</p>
