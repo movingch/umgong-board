@@ -224,7 +224,10 @@ function useRoulette(names: string[]) {
     if (pool.length === 0) return;
     clearTimeout(timerRef.current);
     const rand = () => pool[Math.floor(Math.random() * pool.length)];
-    const winner = rand();
+    // 당첨자는 암호학적 난수로 뽑는다
+    const pick = new Uint32Array(1);
+    crypto.getRandomValues(pick);
+    const winner = pool[pick[0] % pool.length];
     const total = 34 + Math.floor(Math.random() * 8);
     let i = 0;
     let last = '';

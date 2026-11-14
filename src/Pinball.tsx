@@ -129,18 +129,26 @@ function buildCourse() {
   return { segs, pegs, spinners, pendulums, zones, holes, buckets };
 }
 
+// 암호학적 난수로 섞는다 — 자리와 처리 순서가 매 판 완전히 새로 정해진다
+function shuffle<T>(list: T[]): T[] {
+  const buf = new Uint32Array(1);
+  for (let i = list.length - 1; i > 0; i--) {
+    crypto.getRandomValues(buf);
+    const j = buf[0] % (i + 1);
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+  return list;
+}
+
 function spawnMarbles(names: string[]): Marble[] {
+  // 출발 칸 전체(13칸 × 필요한 줄 수)에서 무작위로 자리를 뽑는다
+  const rows = Math.max(1, Math.ceil(names.length / 13));
   const slots: { x: number; y: number }[] = [];
-  for (let row = 0; slots.length < names.length; row++) {
-    for (let col = 0; col < 13 && slots.length < names.length; col++) {
-      slots.push({ x: 60 + col * 40 + (row % 2 ? 12 : 0), y: 188 - row * 25 });
-    }
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < 13; col++) slots.push({ x: 60 + col * 40 + (row % 2 ? 12 : 0), y: 188 - row * 25 });
   }
-  for (let i = slots.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [slots[i], slots[j]] = [slots[j], slots[i]];
-  }
-  return names.map((name, i) => ({
+  shuffle(slots);
+  const marbles = names.map((name, i) => ({
     id: i,
     name,
     hue: Math.round((i * 137.508) % 360),
@@ -148,8 +156,10 @@ function spawnMarbles(names: string[]): Marble[] {
     y: slots[i].y,
     vx: 0, vy: 0, rank: 0,
     checkX: slots[i].x, checkY: slots[i].y,
-    warpCd: 0, trail: [],
+    warpCd: 0, trail: [] as number[],
   }));
+  // 충돌 계산이 명단 순서를 따르지 않도록 구슬 처리 순서도 섞는다
+  return shuffle(marbles);
 }
 
 export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose }: {
@@ -852,9 +862,11 @@ export function PinballModal({ names, title = '🎱 핀볼 추첨', onClose }: {
       const timescale = slow ? 0.25 : closing ? 0.38 : 1;
       zoom += ((closing || slow ? 1.35 : 1) - zoom) * Math.min(1, dt * 3);
 
-      acc += dt * timescale;
+      // 공정성 검증용: 콘솔에서 window.__pinballSpeed 를 주면 그 배수로 빨리 돌린다
+      const speed = Math.max(1, Number((window as any).__pinballSpeed) || 1);
+      acc += dt * timescale * speed;
       let steps = 0;
-      while (acc >= STEP && steps < 24) {
+      while (acc >= STEP && steps < 24 * speed) {
         step(STEP, released);
         acc -= STEP;
         steps++;
