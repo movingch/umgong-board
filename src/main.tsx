@@ -555,7 +555,11 @@ function BoardScreen({ boardId, user }: { boardId: string; user: User | null }) 
         });
         setRaisedHands(hands);
       })
-      .subscribe();
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await presenceChannel.track({ role: 'facilitator', joined_at: new Date().toISOString() });
+        }
+      });
 
     const channel = supabase
       .channel(`board-${boardId}`)
